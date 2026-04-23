@@ -1,127 +1,121 @@
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import { FastifyInstance } from 'fastify';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
+import { AppDataSource } from '../lib/db.js';
+import { Product } from '../entities/Product.js';
+import { Like, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 
-const router = express.Router();
+export default async function productRoutes(appInstance: FastifyInstance) {
+  const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
-// Get all products
-router.get('/', async (req, res) => {
-  try {
-    const { category, subcategory, search, minPrice, maxPrice, page = '1', limit = '20' } = req.query;
-    
-    const where: any = {
-      isActive: true,
-    };
-
-    if (category) {
-      where.category = category as string;
+  // Get all products
+  app.get('/', {
+    schema: {
+      querystring: z.object({
+        category: z.string().optional(),
+        subcategory: z.string().optional(),
+        search: z.string().optional(),
+        minPrice: z.coerce.number().optional(),
+        maxPrice: z.coerce.number().optional(),
+        page: z.coerce.number().default(1),
+        limit: z.coerce.number().default(20)
+      })
     }
+  }, async (request, reply) => {
+    try {
+      const { category, subcategory, search, minPrice, maxPrice, page, limit } = request.query as any;
+      
+      const productRepo = AppDataSource.getRepository(Product);
+      
+      const whereParams: any = { isActive: true };
 
-    if (subcategory) {
-      where.subcategory = subcategory as string;
-    }
+      if (category) whereParams.category = category;
+      if (subcategory) whereParams.subcategory = subcategory;
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search as string, mode: 'insensitive' } },
-        { description: { contains: search as string, mode: 'insensitive' } },
-      ];
-    }
+      if (search) {
+        whereParams.name = Like(`%${search}%`);
+      }
 
-    if (minPrice || maxPrice) {
-      where.price = {};
-      if (minPrice) where.price.gte = parseFloat(minPrice as string);
-      if (maxPrice) where.price.lte = parseFloat(maxPrice as string);
-    }
+      if (minPrice && maxPrice) {
+        whereParams.price = Between(minPrice, maxPrice);
+      } else if (minPrice) {
+        whereParams.price = MoreThanOrEqual(minPrice);
+      } else if (maxPrice) {
+        whereParams.price = LessThanOrEqual(maxPrice);
+      }
 
-    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-    const take = parseInt(limit as string);
+      const skip = (page - 1) * limit;
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
+      const [products, total] = await productRepo.findAndCount({
+        where: whereParams,
+        order: { createdAt: 'DESC' },
         skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.product.count({ where }),
-    ]);
+        take: limit
+      });
 
-    // Parse sizes JSON
-    const productsWithParsedSizes = products.map(product => ({
-      ...product,
-      sizes: JSON.parse(product.sizes || '[]'),
-      price: Number(product.price),
-    }));
-
-    res.json({
-      products: productsWithParsedSizes,
-      total,
-      page: parseInt(page as string),
-      limit: take,
-      totalPages: Math.ceil(total / take),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get product by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const product = await prisma.product.findUnique({
-      where: { id: req.params.id },
-      include: {
-        reviews: {
-          where: { isApproved: true },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-      },
-    });
-
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
+      return reply.send({
+        products: products.map(p => ({
+            ...p,
+            price: Number(p.price)
+        })),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
+  });
 
-    res.json({
-      ...product,
-      sizes: JSON.parse(product.sizes || '[]'),
-      price: Number(product.price),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Get categories
+  app.get('/categories/list', async (request, reply) => {
+    try {
+      const productRepo = AppDataSource.getRepository(Product);
+      const categories = await productRepo.find({
+        where: { isActive: true },
+        select: ['category', 'subcategory']
+      });
 
-// Get categories
-router.get('/categories/list', async (req, res) => {
-  try {
-    const categories = await prisma.product.findMany({
-      where: { isActive: true },
-      select: {
-        category: true,
-        subcategory: true,
-      },
-      distinct: ['category', 'subcategory'],
-    });
+      const categoryMap: Record<string, string[]> = {};
+      categories.forEach(({ category, subcategory }) => {
+        if (!categoryMap[category]) {
+          categoryMap[category] = [];
+        }
+        if (subcategory && !categoryMap[category].includes(subcategory)) {
+          categoryMap[category].push(subcategory);
+        }
+      });
 
-    const categoryMap: Record<string, string[]> = {};
-    categories.forEach(({ category, subcategory }) => {
-      if (!categoryMap[category]) {
-        categoryMap[category] = [];
+      return reply.send(categoryMap);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Get product by ID
+  app.get('/:id', {
+    schema: {
+      params: z.object({ id: z.string() })
+    }
+  }, async (request, reply) => {
+    try {
+      const { id } = request.params as any;
+      const productRepo = AppDataSource.getRepository(Product);
+      const product = await productRepo.findOne({
+        where: { id }
+      });
+      
+      if (!product) {
+        return reply.status(404).send({ error: 'Product not found' });
       }
-      if (subcategory && !categoryMap[category].includes(subcategory)) {
-        categoryMap[category].push(subcategory);
-      }
-    });
 
-    res.json(categoryMap);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-export default router;
-
-
-
+      return reply.send({
+        ...product,
+        price: Number(product.price)
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+}

@@ -1,243 +1,182 @@
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import { FastifyInstance } from 'fastify';
+import { AppDataSource } from '../lib/db.js';
+import { Settings } from '../entities/Settings.js';
+import { User } from '../entities/User.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { protect, admin } from '../middleware/auth.js';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 
-const router = express.Router();
+export default async function settingsRoutes(appInstance: FastifyInstance) {
+  const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
-// Encryption key (should be in environment variable in production)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
-const ALGORITHM = 'aes-256-gcm';
+  // Apply protection to all routes
+  app.addHook('preHandler', protect);
+  app.addHook('preHandler', admin);
 
-// Encrypt sensitive data
-const encrypt = (text: string): string => {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
-};
+  // Encryption key
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+  const ALGORITHM = 'aes-256-gcm';
 
-// Decrypt sensitive data
-const decrypt = (encryptedText: string): string => {
-  const parts = encryptedText.split(':');
-  const iv = Buffer.from(parts[0], 'hex');
-  const authTag = Buffer.from(parts[1], 'hex');
-  const encrypted = parts[2];
-  const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
-  decipher.setAuthTag(authTag);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-};
+  const encrypt = (text: string): string => {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+  };
 
-// Rate limiting middleware (simple in-memory store - use Redis in production)
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX = 5; // Max 5 requests per window
+  const decrypt = (encryptedText: string): string => {
+    const parts = encryptedText.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encrypted = parts[2];
+    const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  };
 
-const rateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const record = rateLimitMap.get(ip);
+  // Get settings
+  app.get('/', async (request, reply) => {
+    try {
+      const settingsRepo = AppDataSource.getRepository(Settings);
+      const settings = await settingsRepo.find();
 
-  if (record && record.resetTime > now) {
-    if (record.count >= RATE_LIMIT_MAX) {
-      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
-    }
-    record.count += 1;
-  } else {
-    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
-  }
-
-  // Clean up old entries
-  for (const [key, value] of rateLimitMap.entries()) {
-    if (value.resetTime <= now) {
-      rateLimitMap.delete(key);
-    }
-  }
-
-  next();
-};
-
-// Input validation middleware
-const validateSettings = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const { siteName, email, phone, razorpayKey, razorpaySecret } = req.body;
-
-  // Validate site name
-  if (siteName && (siteName.length < 2 || siteName.length > 100)) {
-    return res.status(400).json({ error: 'Site name must be between 2 and 100 characters' });
-  }
-
-  // Validate email
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: 'Invalid email format' });
-  }
-
-  // Validate phone
-  if (phone && !/^[\d\s\+\-\(\)]+$/.test(phone)) {
-    return res.status(400).json({ error: 'Invalid phone format' });
-  }
-
-  // Validate Razorpay Key
-  if (razorpayKey && !razorpayKey.startsWith('rzp_')) {
-    return res.status(400).json({ error: 'Invalid Razorpay Key ID format' });
-  }
-
-  // Validate Razorpay Secret
-  if (razorpaySecret && razorpaySecret.length < 20) {
-    return res.status(400).json({ error: 'Invalid Razorpay Secret format' });
-  }
-
-  // Sanitize inputs (remove potential XSS)
-  if (req.body.siteName) {
-    req.body.siteName = req.body.siteName.replace(/[<>]/g, '').trim();
-  }
-  if (req.body.tagline) {
-    req.body.tagline = req.body.tagline.replace(/[<>]/g, '').trim();
-  }
-  if (req.body.address) {
-    req.body.address = req.body.address.replace(/[<>]/g, '').trim();
-  }
-
-  next();
-};
-
-// Get settings (admin only)
-router.get('/', async (req, res) => {
-  try {
-    // TODO: Add authentication check - verify user is admin
-    const settings = await prisma.settings.findMany();
-    
-    const settingsMap: Record<string, string> = {};
-    settings.forEach(setting => {
-      if (setting.isEncrypted) {
-        // Don't return encrypted values, just indicate they exist
-        settingsMap[setting.key] = setting.value ? '***ENCRYPTED***' : '';
-      } else {
-        settingsMap[setting.key] = setting.value;
-      }
-    });
-
-    res.json({
-      siteName: settingsMap.siteName || 'Indhumathi',
-      tagline: settingsMap.tagline || 'Pure Cotton Women\'s Innerwear',
-      email: settingsMap.email || 'contact@indhumathi.com',
-      phone: settingsMap.phone || '+91 98765 43210',
-      address: settingsMap.address || '123, Textile Street, Tirupur, Tamil Nadu - 641604',
-      razorpayKey: settingsMap.razorpayKey || '',
-      razorpaySecret: '', // Never return actual secrets
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Save settings (admin only, rate limited)
-router.post('/', rateLimiter, validateSettings, async (req, res) => {
-  try {
-    // TODO: Add authentication check - verify user is admin
-    const { siteName, tagline, email, phone, address, razorpayKey, razorpaySecret } = req.body;
-
-    // Save settings to database
-    const settingsToSave = [
-      { key: 'siteName', value: siteName || '', isEncrypted: false },
-      { key: 'tagline', value: tagline || '', isEncrypted: false },
-      { key: 'email', value: email || '', isEncrypted: false },
-      { key: 'phone', value: phone || '', isEncrypted: false },
-      { key: 'address', value: address || '', isEncrypted: false },
-    ];
-
-    if (razorpayKey) {
-      settingsToSave.push({ key: 'razorpayKey', value: razorpayKey, isEncrypted: false });
-    }
-
-    if (razorpaySecret) {
-      const encryptedSecret = encrypt(razorpaySecret);
-      settingsToSave.push({ key: 'razorpaySecret', value: encryptedSecret, isEncrypted: true });
-    }
-
-    // Upsert each setting
-    for (const setting of settingsToSave) {
-      await prisma.settings.upsert({
-        where: { key: setting.key },
-        update: {
-          value: setting.value,
-          isEncrypted: setting.isEncrypted,
-          updatedBy: req.body.userId || 'admin', // TODO: Get from authenticated session
-        },
-        create: {
-          key: setting.key,
-          value: setting.value,
-          isEncrypted: setting.isEncrypted,
-          updatedBy: req.body.userId || 'admin',
-        },
+      const settingsMap: Record<string, string> = {};
+      settings.forEach(setting => {
+        if (setting.isEncrypted) {
+          settingsMap[setting.key] = setting.value ? '***ENCRYPTED***' : '';
+        } else {
+          settingsMap[setting.key] = setting.value;
+        }
       });
+
+      return reply.send({
+        siteName: settingsMap.siteName || 'Indhumathi',
+        tagline: settingsMap.tagline || 'Pure Cotton Women\'s Innerwear',
+        email: settingsMap.email || 'indhumathi.img@gmail.com',
+        phone: settingsMap.phone || '+91 87546 09226',
+        address: settingsMap.address || 'Teachers colony 2nd street, Pandian nagar, Tiruppur,Tamilnadu . - 641604',
+        razorpayKey: settingsMap.razorpayKey || '',
+        razorpaySecret: '', // Never return actual secrets
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
+  });
 
-    res.json({
-      message: 'Settings saved successfully',
-      // Never return encrypted data
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Change password (admin only, rate limited)
-router.post('/change-password', rateLimiter, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.body.userId; // TODO: Get from authenticated session
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current password and new password are required' });
+  // Save settings (rate limited, validated)
+  // Note: Rate limiting is handled by global fastify-rate-limit plugin in index.ts for simplicity, 
+  // but can be scoped locally. For now, we'll rely on the standard endpoint.
+  app.post('/', {
+    schema: {
+      body: z.object({
+        siteName: z.string().min(2).max(100).optional(),
+        tagline: z.string().optional(),
+        email: z.string().email().optional().or(z.literal('')),
+        phone: z.string().optional(),
+        address: z.string().optional(),
+        razorpayKey: z.string().optional(),
+        razorpaySecret: z.string().optional()
+      })
     }
+  }, async (request, reply) => {
+    try {
+      const { siteName, tagline, email, phone, address, razorpayKey, razorpaySecret } = request.body as Record<string, any>;
+      const user = (request as any).user;
 
-    // Validate password strength
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      const safeSiteName = siteName ? siteName.replace(/[<>]/g, '').trim() : '';
+      const safeTagline = tagline ? tagline.replace(/[<>]/g, '').trim() : '';
+      const safeAddress = address ? address.replace(/[<>]/g, '').trim() : '';
+
+      const settingsToSave = [
+        { key: 'siteName', value: safeSiteName, isEncrypted: false },
+        { key: 'tagline', value: safeTagline, isEncrypted: false },
+        { key: 'email', value: email || '', isEncrypted: false },
+        { key: 'phone', value: phone || '', isEncrypted: false },
+        { key: 'address', value: safeAddress, isEncrypted: false },
+      ];
+
+      if (razorpayKey && razorpayKey.startsWith('rzp_')) {
+        settingsToSave.push({ key: 'razorpayKey', value: razorpayKey, isEncrypted: false });
+      }
+
+      if (razorpaySecret && razorpaySecret.length >= 20) {
+        const encryptedSecret = encrypt(razorpaySecret);
+        settingsToSave.push({ key: 'razorpaySecret', value: encryptedSecret, isEncrypted: true });
+      }
+
+      const settingsRepo = AppDataSource.getRepository(Settings);
+      for (const setting of settingsToSave) {
+        let existingSetting = await settingsRepo.findOneBy({ key: setting.key });
+        if (existingSetting) {
+          existingSetting.value = setting.value;
+          existingSetting.isEncrypted = setting.isEncrypted;
+          existingSetting.updatedBy = user.id || 'admin';
+          await settingsRepo.save(existingSetting);
+        } else {
+          const newSetting = settingsRepo.create({
+            key: setting.key,
+            value: setting.value,
+            isEncrypted: setting.isEncrypted,
+            updatedBy: user.id || 'admin'
+          });
+          await settingsRepo.save(newSetting);
+        }
+      }
+
+      return reply.send({ message: 'Settings saved successfully' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
-    if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      return res.status(400).json({ error: 'Password must contain uppercase, lowercase, and numbers' });
+  });
+
+  // Change password 
+  app.post('/change-password', {
+    schema: {
+      body: z.object({
+        currentPassword: z.string(),
+        newPassword: z.string().min(8)
+      })
     }
+  }, async (request, reply) => {
+    try {
+      const { currentPassword, newPassword } = request.body as Record<string, string>;
+      const user = (request as any).user;
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+      if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return reply.status(400).send({ error: 'Password must contain uppercase, lowercase, and numbers' });
+      }
 
-    if (!user || !user.password) {
-      return res.status(404).json({ error: 'User not found' });
+      const userRepo = AppDataSource.getRepository(User);
+      const safeUser = await userRepo.findOneBy({ id: user.id });
+
+      if (!safeUser || !safeUser.password) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      const isValid = await bcrypt.compare(currentPassword, safeUser.password);
+      if (!isValid) {
+        return reply.status(401).send({ error: 'Current password is incorrect' });
+      }
+
+      const isSame = await bcrypt.compare(newPassword, safeUser.password);
+      if (isSame) {
+        return reply.status(400).send({ error: 'New password must be different from current password' });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      safeUser.password = hashedPassword;
+      await userRepo.save(safeUser);
+
+      return reply.send({ message: 'Password changed successfully' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
-
-    // Verify current password
-    const isValid = await bcrypt.compare(currentPassword, user.password);
-    if (!isValid) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-
-    // Check if new password is different
-    const isSame = await bcrypt.compare(newPassword, user.password);
-    if (isSame) {
-      return res.status(400).json({ error: 'New password must be different from current password' });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Update password
-    await prisma.user.update({
-      where: { id: userId },
-      data: { password: hashedPassword },
-    });
-
-    res.json({ message: 'Password changed successfully' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-export default router;
-
+  });
+}

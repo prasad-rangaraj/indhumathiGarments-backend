@@ -44,3 +44,5 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+/src/generated/prisma

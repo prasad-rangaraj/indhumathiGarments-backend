@@ -1,129 +1,204 @@
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import { FastifyInstance } from 'fastify';
+import { AppDataSource } from '../lib/db.js';
+import { CartItem } from '../entities/CartItem.js';
+import { protect } from '../middleware/auth.js';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { cartSchema } from '../lib/validators.js';
+import { z } from 'zod';
 
-const router = express.Router();
+export default async function cartRoutes(appInstance: FastifyInstance) {
+  const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
-// Get cart items
-router.get('/:userId', async (req, res) => {
-  try {
-    const cartItems = await prisma.cartItem.findMany({
-      where: { userId: req.params.userId },
-      include: {
-        product: true,
-      },
-    });
+  // Apply protection to all cart routes
+  app.addHook('preHandler', protect);
 
-    res.json(cartItems.map(item => ({
-      ...item,
-      product: {
-        ...item.product,
-        price: Number(item.product.price),
-        sizes: JSON.parse(item.product.sizes || '[]'),
-      },
-    })));
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Add to cart
-router.post('/', async (req, res) => {
-  try {
-    const { userId, productId, quantity, size, color } = req.body;
-
-    const existingItem = await prisma.cartItem.findFirst({
-      where: {
-        userId,
-        productId,
-        size,
-        color: color || null,
-      },
-    });
-
-    let cartItem;
-    if (existingItem) {
-      cartItem = await prisma.cartItem.update({
-        where: { id: existingItem.id },
-        data: { quantity: existingItem.quantity + quantity },
-        include: { product: true },
+  // Get cart items
+  app.get('/', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      const cartItemRepo = AppDataSource.getRepository(CartItem);
+      const items = await cartItemRepo.find({
+        where: { userId: user.id },
+        relations: ['product']
       });
-    } else {
-      cartItem = await prisma.cartItem.create({
-        data: {
-          userId,
-          productId,
-          quantity,
-          size,
-          color,
-        },
-        include: { product: true },
-      });
+      
+      // Filter out items with missing products
+      const validItems = items.filter(item => item.product !== null);
+      
+      // Cleanup invalid items
+      if (items.length !== validItems.length) {
+         const invalidIds = items.filter(item => item.product === null).map(item => item.id);
+         if (invalidIds.length > 0) {
+             await cartItemRepo.delete(invalidIds);
+         }
+      }
+
+      return reply.send(validItems.map(cartItem => {
+          const product = cartItem.product;
+          return {
+              id: cartItem.id,
+              userId: cartItem.userId,
+              productId: product!.id,
+              quantity: cartItem.quantity,
+              size: cartItem.size,
+              color: cartItem.color,
+              createdAt: cartItem.createdAt,
+              updatedAt: cartItem.updatedAt,
+              product: {
+                  ...product!,
+                  price: Number(product!.price)
+              },
+          };
+      }));
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
+  });
 
-    res.status(201).json({
-      ...cartItem,
-      product: {
-        ...cartItem.product,
-        price: Number(cartItem.product.price),
-        sizes: JSON.parse(cartItem.product.sizes || '[]'),
-      },
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Add to cart
+  app.post('/', { schema: { body: cartSchema } }, async (request, reply) => {
+    try {
+      const { productId, quantity, size, color } = request.body as z.infer<typeof cartSchema>;
+      const user = (request as any).user;
 
-// Update cart item
-router.patch('/:id', async (req, res) => {
-  try {
-    const { quantity } = req.body;
+      const cartItemRepo = AppDataSource.getRepository(CartItem);
+      
+      const existingItem = await cartItemRepo.findOne({
+        where: {
+          userId: user.id,
+          productId,
+          size,
+          color: color || undefined,
+        }
+      });
 
-    const cartItem = await prisma.cartItem.update({
-      where: { id: req.params.id },
-      data: { quantity },
-      include: { product: true },
-    });
+      let cartItem;
+      if (existingItem) {
+        existingItem.quantity += quantity;
+        cartItem = await cartItemRepo.save(existingItem);
+        // Explicitly load the product relation for existingItem since save() doesn't auto-fetch relations if not loaded
+        cartItem = await cartItemRepo.findOne({ where: { id: cartItem.id }, relations: ['product'] });
+      } else {
+        const newItem = cartItemRepo.create({
+            userId: user.id,
+            productId,
+            quantity,
+            size,
+            color
+        });
+        cartItem = await cartItemRepo.save(newItem);
+        cartItem = await cartItemRepo.findOne({ where: { id: cartItem.id }, relations: ['product'] });
+      }
 
-    res.json({
-      ...cartItem,
-      product: {
-        ...cartItem.product,
-        price: Number(cartItem.product.price),
-        sizes: JSON.parse(cartItem.product.sizes || '[]'),
-      },
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      if (!cartItem || !cartItem.product) {
+          return reply.status(500).send({ error: 'Failed to add item to cart' });
+      }
 
-// Remove from cart
-router.delete('/:id', async (req, res) => {
-  try {
-    await prisma.cartItem.delete({
-      where: { id: req.params.id },
-    });
+      const product = cartItem.product;
 
-    res.json({ message: 'Item removed from cart' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      return reply.status(201).send({
+          id: cartItem.id,
+          userId: cartItem.userId,
+          productId: product.id,
+          quantity: cartItem.quantity,
+          size: cartItem.size,
+          color: cartItem.color,
+          createdAt: cartItem.createdAt,
+          updatedAt: cartItem.updatedAt,
+          product: {
+              ...product,
+              price: Number(product.price)
+          },
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
 
-// Clear cart
-router.delete('/user/:userId', async (req, res) => {
-  try {
-    await prisma.cartItem.deleteMany({
-      where: { userId: req.params.userId },
-    });
+  // Update cart item
+  app.patch('/:id', {
+    schema: {
+      body: z.object({ quantity: z.number().int().positive() })
+    }
+  }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { quantity } = request.body as { quantity: number };
+      const user = (request as any).user;
 
-    res.json({ message: 'Cart cleared' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      const cartItemRepo = AppDataSource.getRepository(CartItem);
 
-export default router;
+      // Verify ownership
+      const existing = await cartItemRepo.findOne({
+          where: { id, userId: user.id },
+          relations: ['product']
+      });
 
+      if (!existing) {
+          return reply.status(404).send({ error: 'Cart item not found' });
+      }
 
+      existing.quantity = quantity;
+      const cartItem = await cartItemRepo.save(existing);
 
+      const product = cartItem.product; 
+
+      return reply.send({
+          id: cartItem.id,
+          userId: cartItem.userId,
+          productId: product.id,
+          quantity: cartItem.quantity,
+          size: cartItem.size,
+          color: cartItem.color,
+          createdAt: cartItem.createdAt, 
+          updatedAt: cartItem.updatedAt,
+          product: {
+              ...product,
+              price: Number(product.price)
+          },
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Remove from cart
+  app.delete('/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const user = (request as any).user;
+      
+      if (!id) {
+        return reply.status(400).send({ error: 'Cart item ID is required' });
+      }
+      const cartItemRepo = AppDataSource.getRepository(CartItem);
+      
+      const existing = await cartItemRepo.findOne({
+          where: { id, userId: user.id }
+      });
+
+      if (!existing) {
+          return reply.status(404).send({ error: 'Item not found' });
+      }
+
+      await cartItemRepo.remove(existing);
+
+      return reply.send({ message: 'Item removed from cart' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Clear cart
+  app.delete('/', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      const cartItemRepo = AppDataSource.getRepository(CartItem);
+      await cartItemRepo.delete({ userId: user.id });
+
+      return reply.send({ message: 'Cart cleared' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+}

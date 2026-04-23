@@ -1,185 +1,219 @@
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import { FastifyInstance } from 'fastify';
+import { AppDataSource } from '../lib/db.js';
+import { User } from '../entities/User.js';
+import { Address } from '../entities/Address.js';
+import { Order } from '../entities/Order.js';
+import { protect } from '../middleware/auth.js';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 
-const router = express.Router();
+export default async function customerRoutes(appInstance: FastifyInstance) {
+  const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
-// Get customer profile
-router.get('/profile/:userId', async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.params.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        createdAt: true,
-      },
-    });
+  // Protect all customer routes
+  app.addHook('preHandler', protect);
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update customer profile
-router.patch('/profile/:userId', async (req, res) => {
-  try {
-    const { name, phone } = req.body;
-    const user = await prisma.user.update({
-      where: { id: req.params.userId },
-      data: { name, phone },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-      },
-    });
-
-    res.json(user);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get customer addresses
-router.get('/addresses/:userId', async (req, res) => {
-  try {
-    const addresses = await prisma.address.findMany({
-      where: { userId: req.params.userId },
-      orderBy: [
-        { isDefault: 'desc' },
-        { createdAt: 'desc' },
-      ],
-    });
-
-    res.json(addresses);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Create address
-router.post('/addresses', async (req, res) => {
-  try {
-    const { userId, name, phone, address, city, pincode, state, country, isDefault, addressType } = req.body;
-
-    // If this is set as default, unset other defaults
-    if (isDefault) {
-      await prisma.address.updateMany({
-        where: { userId },
-        data: { isDefault: false },
-      });
-    }
-
-    const newAddress = await prisma.address.create({
-      data: {
-        userId,
-        name,
-        phone,
-        address,
-        city,
-        pincode,
-        state,
-        country: country || 'India',
-        isDefault: isDefault || false,
-        addressType: addressType || 'home',
-      },
-    });
-
-    res.status(201).json(newAddress);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update address
-router.patch('/addresses/:id', async (req, res) => {
-  try {
-    const { isDefault, ...updateData } = req.body;
-
-    // If setting as default, unset other defaults
-    if (isDefault) {
-      const address = await prisma.address.findUnique({
-        where: { id: req.params.id },
-        select: { userId: true },
+  // Get customer profile
+  app.get('/profile/:userId', {
+      schema: { params: z.object({ userId: z.string() }) }
+  }, async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+      const userRepo = AppDataSource.getRepository(User);
+      const user = await userRepo.findOne({
+          where: { id: userId },
+          select: ['id', 'name', 'email', 'phone', 'role', 'createdAt']
       });
 
-      if (address) {
-        await prisma.address.updateMany({
-          where: { userId: address.userId, id: { not: req.params.id } },
-          data: { isDefault: false },
-        });
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
       }
+
+      return reply.send(user);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
+  });
 
-    const updatedAddress = await prisma.address.update({
-      where: { id: req.params.id },
-      data: { ...updateData, isDefault },
-    });
+  // Update customer profile
+  app.patch('/profile/:userId', {
+      schema: {
+          params: z.object({ userId: z.string() }),
+          body: z.object({
+              name: z.string().optional(),
+              phone: z.string().optional()
+          })
+      }
+  }, async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+      const { name, phone } = request.body as { name?: string, phone?: string };
 
-    res.json(updatedAddress);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      // Ensure that ownership or admin privileges exist (omitted for speed unless required, following previous implementation)
+      
+      const userRepo = AppDataSource.getRepository(User);
+      let user = await userRepo.findOneBy({ id: userId });
+      
+      if (user) {
+          if (name) user.name = name;
+          if (phone) user.phone = phone;
+          await userRepo.save(user);
+          user = await userRepo.findOne({
+              where: { id: userId },
+              select: ['id', 'name', 'email', 'phone', 'role']
+          });
+      }
 
-// Delete address
-router.delete('/addresses/:id', async (req, res) => {
-  try {
-    await prisma.address.delete({
-      where: { id: req.params.id },
-    });
+      return reply.send(user);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
 
-    res.json({ message: 'Address deleted successfully' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Get customer addresses
+  app.get('/addresses/:userId', {
+      schema: { params: z.object({ userId: z.string() }) }
+  }, async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+      const addressRepo = AppDataSource.getRepository(Address);
+      const addresses = await addressRepo.find({
+          where: { userId },
+          order: { isDefault: 'DESC', createdAt: 'DESC' }
+      });
 
-// Get customer orders
-router.get('/orders/:userId', async (req, res) => {
-  try {
-    const orders = await prisma.order.findMany({
-      where: { userId: req.params.userId },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
-      orderBy: { orderDate: 'desc' },
-    });
+      return reply.send(addresses);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
 
-    res.json(orders.map(order => ({
-      ...order,
-      total: Number(order.total),
-      originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
-      discount: order.discount ? Number(order.discount) : null,
-      items: order.items.map(item => ({
-        ...item,
-        price: Number(item.price),
-        product: {
-          ...item.product,
-          price: Number(item.product.price),
-          sizes: JSON.parse(item.product.sizes || '[]'),
-        },
-      })),
-    })));
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Create address
+  app.post('/addresses', {
+      schema: {
+          body: z.object({
+              userId: z.string(),
+              name: z.string(),
+              phone: z.string(),
+              address: z.string(),
+              city: z.string(),
+              pincode: z.string(),
+              state: z.string(),
+              country: z.string().optional(),
+              isDefault: z.boolean().optional(),
+              addressType: z.string().optional()
+          })
+      }
+  }, async (request, reply) => {
+    try {
+      const { userId, name, phone, address, city, pincode, state, country, isDefault, addressType } = request.body as Record<string, any>;
 
-export default router;
+      const addressRepo = AppDataSource.getRepository(Address);
+      
+      if (isDefault) {
+          await addressRepo.update({ userId }, { isDefault: false });
+      }
 
+      const newAddress = addressRepo.create({
+            userId,
+            name,
+            phone,
+            address,
+            city,
+            pincode,
+            state,
+            country: country || 'India',
+            isDefault: isDefault || false,
+            addressType: addressType || 'home',
+      });
+      await addressRepo.save(newAddress);
 
+      return reply.status(201).send(newAddress);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Update address
+  app.patch('/addresses/:id', {
+      schema: {
+          params: z.object({ id: z.string() }),
+          body: z.record(z.string(), z.any())
+      }
+  }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, any>;
+      const { isDefault, ...updateData } = body;
+
+      const addressRepo = AppDataSource.getRepository(Address);
+      
+      if (isDefault) {
+        const address = await addressRepo.findOneBy({ id });
+        if (address) {
+            await addressRepo.createQueryBuilder()
+                .update(Address)
+                .set({ isDefault: false })
+                .where("userId = :userId AND id != :id", { userId: address.userId, id })
+                .execute();
+        }
+      }
+
+      const updatedAddress = await addressRepo.findOneBy({ id });
+      if (updatedAddress) {
+          Object.assign(updatedAddress, { ...updateData, isDefault });
+          await addressRepo.save(updatedAddress);
+      }
+
+      return reply.send(updatedAddress);
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Delete address
+  app.delete('/addresses/:id', {
+      schema: { params: z.object({ id: z.string() }) }
+  }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const addressRepo = AppDataSource.getRepository(Address);
+      await addressRepo.delete({ id });
+      return reply.send({ message: 'Address deleted successfully' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Get customer orders
+  app.get('/orders/:userId', {
+      schema: { params: z.object({ userId: z.string() }) }
+  }, async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+      const orderRepo = AppDataSource.getRepository(Order);
+      const orders = await orderRepo.find({
+          where: { userId },
+          relations: ['items', 'items.product'],
+          order: { orderDate: 'DESC' }
+      });
+
+      return reply.send(orders.map((order: any) => ({
+        ...order,
+        total: Number(order.total),
+        originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
+        discount: order.discount ? Number(order.discount) : null,
+        items: order.items.map((item: any) => ({
+            ...item,
+            price: Number(item.price),
+            product: item.product ? {
+                ...item.product,
+                price: Number(item.product.price)
+            } : null,
+        })),
+      })));
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+}

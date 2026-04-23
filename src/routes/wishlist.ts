@@ -1,81 +1,114 @@
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import { FastifyInstance } from 'fastify';
+import { AppDataSource } from '../lib/db.js';
+import { WishlistItem } from '../entities/WishlistItem.js';
+import { protect } from '../middleware/auth.js';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { wishlistSchema } from '../lib/validators.js';
+import { z } from 'zod';
 
-const router = express.Router();
+export default async function wishlistRoutes(appInstance: FastifyInstance) {
+  const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
-// Get wishlist items
-router.get('/:userId', async (req, res) => {
-  try {
-    const wishlistItems = await prisma.wishlistItem.findMany({
-      where: { userId: req.params.userId },
-      include: {
-        product: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  // Apply protection to all wishlist routes
+  app.addHook('preHandler', protect);
 
-    res.json(wishlistItems.map(item => ({
-      ...item,
-      product: {
-        ...item.product,
-        price: Number(item.product.price),
-        sizes: JSON.parse(item.product.sizes || '[]'),
-      },
-    })));
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Get wishlist
+  app.get('/', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      const wishlistItemRepo = AppDataSource.getRepository(WishlistItem);
+      const items = await wishlistItemRepo.find({
+          where: { userId: user.id },
+          relations: ['product']
+      });
 
-// Add to wishlist
-router.post('/', async (req, res) => {
-  try {
-    const { userId, productId } = req.body;
+      const validItems = items.filter(item => item.product !== null);
 
-    const wishlistItem = await prisma.wishlistItem.create({
-      data: {
-        userId,
-        productId,
-      },
-      include: {
-        product: true,
-      },
-    });
-
-    res.status(201).json({
-      ...wishlistItem,
-      product: {
-        ...wishlistItem.product,
-        price: Number(wishlistItem.product.price),
-        sizes: JSON.parse(wishlistItem.product.sizes || '[]'),
-      },
-    });
-  } catch (error: any) {
-    // Handle unique constraint violation
-    if (error.code === 'P2002') {
-      return res.status(400).json({ error: 'Product already in wishlist' });
+      return reply.send(validItems.map(item => {
+          const product = item.product!;
+          return {
+            id: item.id,
+            userId: item.userId,
+            productId: product.id,
+            createdAt: item.createdAt, 
+            product: {
+              ...product,
+              price: Number(product.price)
+            },
+          };
+      }));
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
-  }
-});
+  });
 
-// Remove from wishlist
-router.delete('/:userId/:productId', async (req, res) => {
-  try {
-    await prisma.wishlistItem.deleteMany({
-      where: {
-        userId: req.params.userId,
-        productId: req.params.productId,
-      },
-    });
+  // Add to wishlist
+  app.post('/', { schema: { body: wishlistSchema } }, async (request, reply) => {
+    try {
+      const { productId } = request.body as z.infer<typeof wishlistSchema>;
+      const user = (request as any).user;
 
-    res.json({ message: 'Item removed from wishlist' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      const wishlistItemRepo = AppDataSource.getRepository(WishlistItem);
+      const existing = await wishlistItemRepo.findOne({
+          where: { userId: user.id, productId }
+      });
 
-export default router;
+      if (existing) {
+           return reply.status(400).send({ error: 'Product already in wishlist' });
+      }
 
+      const newItem = wishlistItemRepo.create({
+          userId: user.id,
+          productId,
+      });
+      let wishlistItem = await wishlistItemRepo.save(newItem);
+      wishlistItem = await wishlistItemRepo.findOne({
+          where: { id: wishlistItem.id },
+          relations: ['product']
+      }) as WishlistItem;
+      
+      const product = wishlistItem.product;
 
+      return reply.status(201).send({
+        id: wishlistItem.id,
+        userId: wishlistItem.userId,
+        productId: product.id,
+        createdAt: wishlistItem.createdAt, 
+        product: {
+          ...product,
+          price: Number(product.price)
+        },
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
 
+  // Remove from wishlist
+  app.delete('/:productId', {
+    schema: { params: z.object({ productId: z.string() }) }
+  }, async (request, reply) => {
+    try {
+      const { productId } = request.params as { productId: string };
+      const user = (request as any).user;
+
+      const wishlistItemRepo = AppDataSource.getRepository(WishlistItem);
+      const existing = await wishlistItemRepo.findOne({
+        where: {
+            userId: user.id,
+            productId
+        }
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Item not found in wishlist' });
+      }
+
+      await wishlistItemRepo.remove(existing);
+
+      return reply.send({ message: 'Item removed from wishlist' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+}

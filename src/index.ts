@@ -1,6 +1,33 @@
-import express from 'express';
-import cors from 'cors';
+import 'reflect-metadata';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+import fastifyCookie from '@fastify/cookie';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
+
+dotenv.config();
+
+// Initialize Fastify
+const app = Fastify({
+  logger: true
+}).withTypeProvider<ZodTypeProvider>();
+
+app.setValidatorCompiler(validatorCompiler);
+app.setSerializerCompiler(serializerCompiler);
+
+const PORT = process.env.PORT && process.env.PORT !== '3000' ? Number(process.env.PORT) : 5001;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080/';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Import Routes (To be refactored)
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import orderRoutes from './routes/orders.js';
@@ -12,66 +39,97 @@ import adminRoutes from './routes/admin.js';
 import customerRoutes from './routes/customers.js';
 import enquiryRoutes from './routes/enquiries.js';
 import settingsRoutes from './routes/settings.js';
+import trackingRoutes from './routes/tracking.js';
+import couponPublicRoutes from './routes/coupons.js';
+import paymentsRoutes from './routes/payments.js';
 
-dotenv.config();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
-
-// Security Headers Middleware
-app.use((req, res, next) => {
-  // Prevent XSS attacks
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  // Content Security Policy
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';");
-  next();
+// Setup Plugins
+app.register(cors, {
+  origin: ['http://localhost:8080', 'http://localhost:3000', FRONTEND_URL],
+  credentials: true,
 });
 
-// Middleware
-app.use(cors({
-  origin: FRONTEND_URL,
-  credentials: true,
-}));
-app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
-app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Limit URL-encoded payload size
+app.register(fastifyStatic, {
+  root: path.join(__dirname, '..', 'uploads'),
+  prefix: '/uploads/', // optional: default '/'
+});
+
+app.register(fastifyCookie);
+app.register(helmet, { global: true, crossOriginResourcePolicy: false }); // Allow images
+app.register(rateLimit, {
+  max: 100,
+  timeWindow: '1 minute'
+}); // Basic rate limit for security
+
+import { initDb } from './lib/db.js';
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Indhumathi API is running' });
+app.get('/api/health', async (request, reply) => {
+  return { status: 'ok', message: 'Indhumathi API is running with Fastify and Oracle SQL 🚀' };
 });
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/wishlist', wishlistRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/admin/settings', settingsRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/enquiries', enquiryRoutes);
+// Public settings (no auth required) — for customer-facing site
+app.get('/api/public/settings', async (request, reply) => {
+  try {
+    const { AppDataSource } = await import('./lib/db.js');
+    const { Settings } = await import('./entities/Settings.js');
+    const settingsRepo = AppDataSource.getRepository(Settings);
+    const rows = await settingsRepo.find();
+    const map: Record<string, string> = {};
+    rows.forEach((r: any) => { if (!r.isEncrypted) map[r.key] = r.value; });
+    const settingsResponse = {
+      siteName: map.siteName || 'Indhumathi',
+      tagline: map.tagline || "Pure Cotton Women's Innerwear",
+      email: map.email || 'indhumathi.img@gmail.com',
+      phone: map.phone || '+91 87546 09226',
+      address: map.address || 'Teachers colony 2nd street, Pandian nagar, Tiruppur, Tamilnadu - 641604.',
+    };
 
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-  });
+    // Override specifically if they contain the wrong mock data identified
+    if (settingsResponse.phone === '+91 98765 43210') {
+      settingsResponse.phone = '+91 87546 09226';
+    }
+    if (settingsResponse.address.includes('123, Textile Street')) {
+      settingsResponse.address = 'Teachers colony 2nd street, Pandian nagar, Tiruppur, Tamilnadu - 641604.';
+    }
+
+    return reply.send(settingsResponse);
+  } catch {
+    return reply.send({
+      siteName: 'Indhumathi',
+      tagline: "Pure Cotton Women's Innerwear",
+      email: 'indhumathi.img@gmail.com',
+      phone: '+91 87546 09226',
+      address: 'Teachers colony 2nd street, Pandian nagar, Tiruppur, Tamilnadu - 641604.',
+    });
+  }
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+// Register Routes
+app.register(authRoutes, { prefix: '/api/auth' });
+app.register(productRoutes, { prefix: '/api/products' });
+app.register(orderRoutes, { prefix: '/api/orders' });
+app.register(userRoutes, { prefix: '/api/users' });
+app.register(reviewRoutes, { prefix: '/api/reviews' });
+app.register(cartRoutes, { prefix: '/api/cart' });
+app.register(wishlistRoutes, { prefix: '/api/wishlist' });
+app.register(adminRoutes, { prefix: '/api/admin' });
+app.register(settingsRoutes, { prefix: '/api/admin/settings' });
+app.register(customerRoutes, { prefix: '/api/customers' });
+app.register(enquiryRoutes, { prefix: '/api/enquiries' });
+app.register(couponPublicRoutes, { prefix: '/api/coupons' });
+app.register(trackingRoutes, { prefix: '/api/public/track' });
+app.register(paymentsRoutes, { prefix: '/api/payments' });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📡 CORS enabled for: ${FRONTEND_URL}`);
-});
+const start = async () => {
+  try {
+    await initDb();
+    await app.listen({ port: PORT, host: '0.0.0.0' });
+    app.log.info(`Server running on port ${PORT}`);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+};
 
+start();
