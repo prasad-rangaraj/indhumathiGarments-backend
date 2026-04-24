@@ -45,7 +45,7 @@ export default async function trackingRoutes(appInstance: FastifyInstance) {
       // Push audit trail events
       for (const audit of audits) {
         try {
-          const details = JSON.parse(audit.details);
+          const details = JSON.parse(audit.details || '{}');
           let location = 'Distribution Hub';
           let desc = 'Your order status was updated';
 

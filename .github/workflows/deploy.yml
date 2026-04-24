@@ -1,0 +1,43 @@
+name: 🚀 Deploy to AWS EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # Allow manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            echo "📦 Pulling latest code..."
+            cd /home/ubuntu/indhumathiGarments-backend
+            git pull origin main
+
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "🔨 Building TypeScript..."
+            npm run build
+
+            echo "🔄 Reloading PM2 (zero-downtime)..."
+            pm2 reload indhumathi-backend --update-env
+
+            echo "✅ Health check..."
+            sleep 3
+            curl -sf http://localhost:5001/api/health || (echo "❌ Health check failed!" && exit 1)
+
+            echo "🎉 Deployment complete!"
