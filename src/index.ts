@@ -48,29 +48,7 @@ const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
 const frontendUrl = rawFrontendUrl.replace(/\/$/, ''); // Remove trailing slash if any
 
 app.register(cors, {
-  origin: (origin, cb) => {
-    // In production, browsers send the Origin header. 
-    // If there's no origin (like a local curl request), allow it.
-    if (!origin) {
-      cb(null, true);
-      return;
-    }
-
-    const allowedOrigins = [
-      'http://localhost:8080',
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://indhumathi-garments.vercel.app',
-      frontendUrl
-    ];
-
-    if (allowedOrigins.includes(origin)) {
-      cb(null, true);
-    } else {
-      console.log(`CORS blocked for origin: ${origin}`);
-      cb(new Error('Not allowed by CORS'), false);
-    }
-  },
+  origin: true, // Temporarily allow all origins for debugging
   credentials: true,
   methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
