@@ -140,6 +140,15 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
           if (product.stock <= 0) product.inStock = false;
           await productRepo.save(product);
 
+          // Low Stock Alert
+          if (product.stock <= 5) {
+            sendEmail({
+              email: process.env.ADMIN_EMAIL || 'indhumathi.img@gmail.com',
+              subject: `⚠️ Low Stock Alert: ${product.name}`,
+              message: `The product "${product.name}" is running low on stock.\n\nCurrent Stock: ${product.stock}\nProduct ID: ${product.id}\n\nPlease restock soon to avoid missing orders.`
+            }).catch(e => console.error('Failed to send low stock alert:', e));
+          }
+
           const linePrice = Number(product.price) * item.quantity;
           serverTotal += linePrice;
           enrichedItems.push({ ...item, price: Number(product.price) });

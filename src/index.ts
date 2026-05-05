@@ -1,17 +1,18 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import 'reflect-metadata';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import fastifyCookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyMultipart from '@fastify/multipart';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
-
-dotenv.config();
 
 // Initialize Fastify
 const app = Fastify({
@@ -42,6 +43,7 @@ import settingsRoutes from './routes/settings.js';
 import trackingRoutes from './routes/tracking.js';
 import couponPublicRoutes from './routes/coupons.js';
 import paymentsRoutes from './routes/payments.js';
+import uploadRoutes from './routes/upload.js';
 
 // Setup Plugins
 const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -61,6 +63,11 @@ app.register(fastifyStatic, {
 
 app.register(fastifyCookie);
 app.register(helmet, { global: true, crossOriginResourcePolicy: false }); // Allow images
+app.register(fastifyMultipart, {
+  limits: {
+    fileSize: 2 * 1024 * 1024 // 2MB limit
+  }
+});
 app.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute'
@@ -125,6 +132,7 @@ app.register(enquiryRoutes, { prefix: '/api/enquiries' });
 app.register(couponPublicRoutes, { prefix: '/api/coupons' });
 app.register(trackingRoutes, { prefix: '/api/public/track' });
 app.register(paymentsRoutes, { prefix: '/api/payments' });
+app.register(uploadRoutes, { prefix: '/api/admin' });
 
 const start = async () => {
   try {

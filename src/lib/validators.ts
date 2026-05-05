@@ -23,6 +23,8 @@ export const categorySchema = z.object({
   description: z.string().optional(),
   image: z.string().optional(),
   isActive: z.boolean().optional(),
+  metaTitle: z.string().optional(),
+  metaDescription: z.string().optional(),
 });
 
 export const productSchema = z.object({
@@ -32,10 +34,13 @@ export const productSchema = z.object({
   category: z.string(),
   subcategory: z.string(),
   image: z.string().optional().nullable(),
+  images: z.array(z.string()).optional(),
   sizes: z.array(z.string()).default([]),
   material: z.string().optional(),
   inStock: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  metaTitle: z.string().optional(),
+  metaDescription: z.string().optional(),
 });
 // Cart Schema
 export const cartSchema = z.object({

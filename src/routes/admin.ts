@@ -156,13 +156,15 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Create category
   app.post('/categories', { schema: { body: categorySchema } }, async (request, reply) => {
     try {
-      const { name, description, image, isActive } = request.body as z.infer<typeof categorySchema>;
+      const { name, description, image, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof categorySchema>;
       const categoryRepo = AppDataSource.getRepository(Category);
       const category = categoryRepo.create({
           name,
           description,
           image,
           isActive: isActive !== undefined ? isActive : true,
+          metaTitle,
+          metaDescription,
       });
       await categoryRepo.save(category);
       return reply.status(201).send(category);
@@ -171,15 +173,27 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     }
   });
 
-  // Delete category
+  // Delete category and associated products
   app.delete('/categories/:id', {
       schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const categoryRepo = AppDataSource.getRepository(Category);
+      const productRepo = AppDataSource.getRepository(Product);
+
+      const category = await categoryRepo.findOne({ where: { id } });
+      if (!category) {
+        return reply.status(404).send({ error: 'Category not found' });
+      }
+
+      // Delete all products associated with this category
+      await productRepo.delete({ category: category.name });
+
+      // Delete the category itself
       await categoryRepo.delete({ id });
-      return reply.send({ message: 'Category deleted successfully' });
+
+      return reply.send({ message: 'Category and associated products deleted successfully' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -202,10 +216,47 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     }
   });
 
+  // Bulk Create/Update Products
+  app.post('/products/bulk', { 
+    schema: { 
+      body: z.array(productSchema) 
+    } 
+  }, async (request, reply) => {
+    try {
+      const productsData = request.body as z.infer<typeof productSchema>[];
+      const productRepo = AppDataSource.getRepository(Product);
+      
+      const products = productsData.map(data => productRepo.create({
+          name: data.name,
+          description: data.description,
+          price: data.price,
+          image: data.image || undefined,
+          material: data.material || 'Cotton',
+          category: data.category,
+          subcategory: data.subcategory,
+          sizes: data.sizes || [],
+          images: data.images || [],
+          inStock: data.inStock !== undefined ? data.inStock : true,
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          metaTitle: data.metaTitle,
+          metaDescription: data.metaDescription,
+      }));
+
+      await productRepo.save(products);
+
+      return reply.status(201).send({
+        message: `Successfully imported ${products.length} products.`,
+        count: products.length
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
   // Create product
   app.post('/products', { schema: { body: productSchema } }, async (request, reply) => {
     try {
-      const { name, description, price, image, material, category, subcategory, sizes, inStock, isActive } = request.body as z.infer<typeof productSchema>;
+      const { name, description, price, image, images, material, category, subcategory, sizes, inStock, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof productSchema>;
       
       const productRepo = AppDataSource.getRepository(Product);
       const product = productRepo.create({
@@ -217,9 +268,12 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
             category,
             subcategory,
             sizes: sizes || [],
-            images: [], // or whatever default
+            images: images || [], // Store multiple images
+
             inStock: inStock !== undefined ? inStock : true,
             isActive: isActive !== undefined ? isActive : true,
+            metaTitle,
+            metaDescription,
       });
       await productRepo.save(product);
 
@@ -241,12 +295,16 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
               description: z.string().optional(),
               price: z.number().optional(),
               image: z.string().optional(),
+              images: z.array(z.string()).optional(),
               material: z.string().optional(),
               category: z.string().optional(),
               subcategory: z.string().optional(),
               sizes: z.array(z.string()).optional(),
+              stock: z.number().optional(),
               inStock: z.boolean().optional(),
               isActive: z.boolean().optional(),
+              metaTitle: z.string().optional(),
+              metaDescription: z.string().optional(),
           })
       }
   }, async (request, reply) => {
@@ -258,14 +316,22 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       
       if (body.sizes) updateData.sizes = body.sizes; 
       if (body.price !== undefined) updateData.price = body.price;
+      if (body.stock !== undefined) {
+        updateData.stock = body.stock;
+        // Auto-update inStock based on stock quantity
+        updateData.inStock = body.stock > 0;
+      }
       if (body.inStock !== undefined) updateData.inStock = body.inStock;
       if (body.name) updateData.name = body.name;
       if (body.description !== undefined) updateData.description = body.description;
       if (body.image !== undefined) updateData.image = body.image;
+      if (body.images !== undefined) updateData.images = body.images;
       if (body.material) updateData.material = body.material;
       if (body.category) updateData.category = body.category;
       if (body.subcategory) updateData.subcategory = body.subcategory;
       if (body.isActive !== undefined) updateData.isActive = body.isActive;
+      if (body.metaTitle !== undefined) updateData.metaTitle = body.metaTitle;
+      if (body.metaDescription !== undefined) updateData.metaDescription = body.metaDescription;
 
       const productRepo = AppDataSource.getRepository(Product);
       let product = await productRepo.findOneBy({ id });

@@ -11,7 +11,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "seed:real": "tsx src/scripts/seed-real-products.ts",
+    "update:shorts": "tsx src/scripts/update-cycling-shorts-images.ts",
+    "clear:products": "tsx src/scripts/clear-products.ts"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +23,7 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
+    "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^9.0.0",
     "@types/nodemailer": "^7.0.5",

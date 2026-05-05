@@ -68,22 +68,43 @@ export default async function productRoutes(appInstance: FastifyInstance) {
     }
   });
 
-  // Get categories
+  // Get categories (with SEO metadata)
   app.get('/categories/list', async (request, reply) => {
     try {
+      const { Category } = await import('../entities/Category.js');
+      const categoryRepo = AppDataSource.getRepository(Category);
+      const categories = await categoryRepo.find({
+        where: { isActive: true },
+        select: ['name', 'image', 'metaTitle', 'metaDescription']
+      });
+
+      // Also get subcategories from products to keep the structure
       const productRepo = AppDataSource.getRepository(Product);
-      const categories = await productRepo.find({
+      const products = await productRepo.find({
         where: { isActive: true },
         select: ['category', 'subcategory']
       });
 
-      const categoryMap: Record<string, string[]> = {};
-      categories.forEach(({ category, subcategory }) => {
+      const categoryMap: Record<string, any> = {};
+      
+      // Initialize with full category data
+      categories.forEach(cat => {
+        categoryMap[cat.name] = {
+          name: cat.name,
+          image: cat.image,
+          metaTitle: cat.metaTitle,
+          metaDescription: cat.metaDescription,
+          subcategories: []
+        };
+      });
+
+      // Add subcategories and ensure categories exist even if not in Category entity
+      products.forEach(({ category, subcategory }) => {
         if (!categoryMap[category]) {
-          categoryMap[category] = [];
+          categoryMap[category] = { name: category, subcategories: [] };
         }
-        if (subcategory && !categoryMap[category].includes(subcategory)) {
-          categoryMap[category].push(subcategory);
+        if (subcategory && !categoryMap[category].subcategories.includes(subcategory)) {
+          categoryMap[category].subcategories.push(subcategory);
         }
       });
 

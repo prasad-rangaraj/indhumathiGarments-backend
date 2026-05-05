@@ -61,8 +61,6 @@ export default async function settingsRoutes(appInstance: FastifyInstance) {
         email: settingsMap.email || 'indhumathi.img@gmail.com',
         phone: settingsMap.phone || '+91 87546 09226',
         address: settingsMap.address || 'Teachers colony 2nd street, Pandian nagar, Tiruppur,Tamilnadu . - 641604',
-        razorpayKey: settingsMap.razorpayKey || '',
-        razorpaySecret: '', // Never return actual secrets
       });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -80,13 +78,11 @@ export default async function settingsRoutes(appInstance: FastifyInstance) {
         email: z.string().email().optional().or(z.literal('')),
         phone: z.string().optional(),
         address: z.string().optional(),
-        razorpayKey: z.string().optional(),
-        razorpaySecret: z.string().optional()
       })
     }
   }, async (request, reply) => {
     try {
-      const { siteName, tagline, email, phone, address, razorpayKey, razorpaySecret } = request.body as Record<string, any>;
+      const { siteName, tagline, email, phone, address } = request.body as Record<string, any>;
       const user = (request as any).user;
 
       const safeSiteName = siteName ? siteName.replace(/[<>]/g, '').trim() : '';
@@ -100,15 +96,6 @@ export default async function settingsRoutes(appInstance: FastifyInstance) {
         { key: 'phone', value: phone || '', isEncrypted: false },
         { key: 'address', value: safeAddress, isEncrypted: false },
       ];
-
-      if (razorpayKey && razorpayKey.startsWith('rzp_')) {
-        settingsToSave.push({ key: 'razorpayKey', value: razorpayKey, isEncrypted: false });
-      }
-
-      if (razorpaySecret && razorpaySecret.length >= 20) {
-        const encryptedSecret = encrypt(razorpaySecret);
-        settingsToSave.push({ key: 'razorpaySecret', value: encryptedSecret, isEncrypted: true });
-      }
 
       const settingsRepo = AppDataSource.getRepository(Settings);
       for (const setting of settingsToSave) {
