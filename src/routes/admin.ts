@@ -15,6 +15,22 @@ import { protect, admin } from '../middleware/auth.js';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { categorySchema, productSchema } from '../lib/validators.js';
 import { z } from 'zod';
+import { resolveImageUrl, deleteFromS3, isS3Key } from '../lib/s3.js';
+import { Review } from '../entities/Review.js';
+
+// ─── Helper: resolve all image fields on a product ────────────────────────────
+const withSignedImages = async (p: Product) => {
+  const [image, ...resolvedImages] = await Promise.all([
+    resolveImageUrl(p.image),
+    ...(p.images ?? []).map(resolveImageUrl),
+  ]);
+  return {
+    ...p,
+    price: Number(p.price),
+    image,
+    images: resolvedImages,
+  };
+};
 
 export default async function adminRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -206,11 +222,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const products = await productRepo.find({
           order: { createdAt: 'DESC' }
       });
-
-      return reply.send(products.map(product => ({
-        ...product,
-        price: Number(product.price),
-      })));
+      const resolvedProducts = await Promise.all(products.map(withSignedImages));
+      return reply.send(resolvedProducts);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -276,11 +289,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
             metaDescription,
       });
       await productRepo.save(product);
-
-      return reply.status(201).send({
-        ...product,
-        price: Number(product.price),
-      });
+      return reply.status(201).send(await withSignedImages(product));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -342,11 +351,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       
       Object.assign(product, updateData);
       await productRepo.save(product);
-
-      return reply.send({
-        ...product,
-        price: Number(product.price),
-      });
+      return reply.send(await withSignedImages(product));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -359,8 +364,51 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
       const productRepo = AppDataSource.getRepository(Product);
-      await productRepo.delete({ id });
-      return reply.send({ message: 'Product deleted successfully' });
+      
+      const product = await productRepo.findOne({ 
+        where: { id },
+        relations: ['reviews']
+      });
+
+      if (!product) {
+        return reply.status(404).send({ error: 'Product not found' });
+      }
+
+      // Collect all S3 keys to delete
+      const keysToDelete = new Set<string>();
+      
+      if (product.image && isS3Key(product.image)) {
+        keysToDelete.add(product.image);
+      }
+      
+      if (product.images && Array.isArray(product.images)) {
+        product.images.forEach(img => {
+          if (img && isS3Key(img)) keysToDelete.add(img);
+        });
+      }
+
+      // Collect review images
+      if (product.reviews && Array.isArray(product.reviews)) {
+        product.reviews.forEach(review => {
+          if (review.images && Array.isArray(review.images)) {
+            review.images.forEach(img => {
+              if (img && isS3Key(img)) keysToDelete.add(img);
+            });
+          }
+        });
+      }
+
+      // Delete from S3
+      await Promise.all(
+        Array.from(keysToDelete).map(key => 
+          deleteFromS3(key).catch(err => console.error(`Failed to delete S3 object ${key}:`, err))
+        )
+      );
+
+      // Delete from DB (Reviews will cascade delete due to relation config)
+      await productRepo.remove(product);
+      
+      return reply.send({ message: 'Product and associated images deleted successfully' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -997,6 +1045,22 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       
       if (!returnReq) return reply.status(404).send({ error: 'Return request not found' });
       
+      // Delete images from S3 if request is being finalized
+      if (['Approved', 'Rejected', 'Processed'].includes(status)) {
+        if (returnReq.images && returnReq.images.length > 0) {
+          await Promise.all(
+            returnReq.images.map(img => {
+              if (isS3Key(img)) {
+                return deleteFromS3(img).catch(err => 
+                  console.error(`Failed to delete return image ${img}:`, err)
+                );
+              }
+            })
+          );
+          returnReq.images = []; // Clear images from DB
+        }
+      }
+
       returnReq.status = status;
       if (adminNotes !== undefined) returnReq.adminNotes = adminNotes;
       await returnRepo.save(returnReq);

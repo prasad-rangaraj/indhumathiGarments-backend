@@ -44,6 +44,7 @@ import trackingRoutes from './routes/tracking.js';
 import couponPublicRoutes from './routes/coupons.js';
 import paymentsRoutes from './routes/payments.js';
 import uploadRoutes from './routes/upload.js';
+import uploadPublicRoutes from './routes/uploadPublic.js';
 
 // Setup Plugins
 const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -133,6 +134,7 @@ app.register(couponPublicRoutes, { prefix: '/api/coupons' });
 app.register(trackingRoutes, { prefix: '/api/public/track' });
 app.register(paymentsRoutes, { prefix: '/api/payments' });
 app.register(uploadRoutes, { prefix: '/api/admin' });
+app.register(uploadPublicRoutes, { prefix: '/api/public' });
 
 const start = async () => {
   try {
