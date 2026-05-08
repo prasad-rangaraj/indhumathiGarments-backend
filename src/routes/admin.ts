@@ -16,6 +16,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { categorySchema, productSchema } from '../lib/validators.js';
 import { z } from 'zod';
 import { resolveImageUrl, deleteFromS3, isS3Key } from '../lib/s3.js';
+import { Review } from '../entities/Review.js';
 
 // ─── Helper: resolve all image fields on a product ────────────────────────────
 const withSignedImages = async (p: Product) => {
@@ -160,7 +161,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const categoryRepo = AppDataSource.getRepository(Category);
       const categories = await categoryRepo.find({
-          order: { createdAt: 'DESC' }
+        order: { createdAt: 'DESC' }
       });
       return reply.send(categories);
     } catch (error: any) {
@@ -174,12 +175,12 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const { name, description, image, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof categorySchema>;
       const categoryRepo = AppDataSource.getRepository(Category);
       const category = categoryRepo.create({
-          name,
-          description,
-          image,
-          isActive: isActive !== undefined ? isActive : true,
-          metaTitle,
-          metaDescription,
+        name,
+        description,
+        image,
+        isActive: isActive !== undefined ? isActive : true,
+        metaTitle,
+        metaDescription,
       });
       await categoryRepo.save(category);
       return reply.status(201).send(category);
@@ -190,7 +191,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Delete category and associated products
   app.delete('/categories/:id', {
-      schema: { params: z.object({ id: z.string() }) }
+    schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -219,7 +220,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const productRepo = AppDataSource.getRepository(Product);
       const products = await productRepo.find({
-          order: { createdAt: 'DESC' }
+        order: { createdAt: 'DESC' }
       });
       const resolvedProducts = await Promise.all(products.map(withSignedImages));
       return reply.send(resolvedProducts);
@@ -229,29 +230,29 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   });
 
   // Bulk Create/Update Products
-  app.post('/products/bulk', { 
-    schema: { 
-      body: z.array(productSchema) 
-    } 
+  app.post('/products/bulk', {
+    schema: {
+      body: z.array(productSchema)
+    }
   }, async (request, reply) => {
     try {
       const productsData = request.body as z.infer<typeof productSchema>[];
       const productRepo = AppDataSource.getRepository(Product);
-      
+
       const products = productsData.map(data => productRepo.create({
-          name: data.name,
-          description: data.description,
-          price: data.price,
-          image: data.image || undefined,
-          material: data.material || 'Cotton',
-          category: data.category,
-          subcategory: data.subcategory,
-          sizes: data.sizes || [],
-          images: data.images || [],
-          inStock: data.inStock !== undefined ? data.inStock : true,
-          isActive: data.isActive !== undefined ? data.isActive : true,
-          metaTitle: data.metaTitle,
-          metaDescription: data.metaDescription,
+        name: data.name,
+        description: data.description,
+        price: data.price,
+        image: data.image || undefined,
+        material: data.material || 'Cotton',
+        category: data.category,
+        subcategory: data.subcategory,
+        sizes: data.sizes || [],
+        images: data.images || [],
+        inStock: data.inStock !== undefined ? data.inStock : true,
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        metaTitle: data.metaTitle,
+        metaDescription: data.metaDescription,
       }));
 
       await productRepo.save(products);
@@ -269,23 +270,23 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   app.post('/products', { schema: { body: productSchema } }, async (request, reply) => {
     try {
       const { name, description, price, image, images, material, category, subcategory, sizes, inStock, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof productSchema>;
-      
+
       const productRepo = AppDataSource.getRepository(Product);
       const product = productRepo.create({
-            name,
-            description,
-            price,
-            image: image || undefined,
-            material: material || 'Cotton',
-            category,
-            subcategory,
-            sizes: sizes || [],
-            images: images || [], // Store multiple images
+        name,
+        description,
+        price,
+        image: image || undefined,
+        material: material || 'Cotton',
+        category,
+        subcategory,
+        sizes: sizes || [],
+        images: images || [], // Store multiple images
 
-            inStock: inStock !== undefined ? inStock : true,
-            isActive: isActive !== undefined ? isActive : true,
-            metaTitle,
-            metaDescription,
+        inStock: inStock !== undefined ? inStock : true,
+        isActive: isActive !== undefined ? isActive : true,
+        metaTitle,
+        metaDescription,
       });
       await productRepo.save(product);
       return reply.status(201).send(await withSignedImages(product));
@@ -296,33 +297,33 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update product
   app.patch('/products/:id', {
-      schema: { 
-          params: z.object({ id: z.string() }),
-          body: z.object({
-              name: z.string().optional(),
-              description: z.string().optional(),
-              price: z.number().optional(),
-              image: z.string().optional(),
-              images: z.array(z.string()).optional(),
-              material: z.string().optional(),
-              category: z.string().optional(),
-              subcategory: z.string().optional(),
-              sizes: z.array(z.string()).optional(),
-              stock: z.number().optional(),
-              inStock: z.boolean().optional(),
-              isActive: z.boolean().optional(),
-              metaTitle: z.string().optional(),
-              metaDescription: z.string().optional(),
-          })
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.object({
+        name: z.string().optional(),
+        description: z.string().optional(),
+        price: z.number().optional(),
+        image: z.string().optional(),
+        images: z.array(z.string()).optional(),
+        material: z.string().optional(),
+        category: z.string().optional(),
+        subcategory: z.string().optional(),
+        sizes: z.array(z.string()).optional(),
+        stock: z.number().optional(),
+        inStock: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+        metaTitle: z.string().optional(),
+        metaDescription: z.string().optional(),
+      })
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, any>;
-      
+
       const updateData: any = {};
-      
-      if (body.sizes) updateData.sizes = body.sizes; 
+
+      if (body.sizes) updateData.sizes = body.sizes;
       if (body.price !== undefined) updateData.price = body.price;
       if (body.stock !== undefined) {
         updateData.stock = body.stock;
@@ -343,11 +344,11 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       const productRepo = AppDataSource.getRepository(Product);
       let product = await productRepo.findOneBy({ id });
-      
+
       if (!product) {
         return reply.status(404).send({ error: 'Product not found' });
       }
-      
+
       Object.assign(product, updateData);
       await productRepo.save(product);
       return reply.send(await withSignedImages(product));
@@ -358,13 +359,13 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Delete product
   app.delete('/products/:id', {
-      schema: { params: z.object({ id: z.string() }) }
+    schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const productRepo = AppDataSource.getRepository(Product);
-      
-      const product = await productRepo.findOne({ 
+
+      const product = await productRepo.findOne({
         where: { id },
         relations: ['reviews']
       });
@@ -375,11 +376,11 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       // Collect all S3 keys to delete
       const keysToDelete = new Set<string>();
-      
+
       if (product.image && isS3Key(product.image)) {
         keysToDelete.add(product.image);
       }
-      
+
       if (product.images && Array.isArray(product.images)) {
         product.images.forEach(img => {
           if (img && isS3Key(img)) keysToDelete.add(img);
@@ -399,14 +400,14 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       // Delete from S3
       await Promise.all(
-        Array.from(keysToDelete).map(key => 
+        Array.from(keysToDelete).map(key =>
           deleteFromS3(key).catch(err => console.error(`Failed to delete S3 object ${key}:`, err))
         )
       );
 
       // Delete from DB (Reviews will cascade delete due to relation config)
       await productRepo.remove(product);
-      
+
       return reply.send({ message: 'Product and associated images deleted successfully' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -416,45 +417,45 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Bulk Seed Products - Removed as not needed for Fastify refactor necessarily, but translating it directly
   app.post('/seed-products', async (request, reply) => {
     try {
-      const products = request.body as any[]; 
+      const products = request.body as any[];
 
       if (!Array.isArray(products)) {
-          return reply.status(400).send({ error: 'Input must be an array of products' });
+        return reply.status(400).send({ error: 'Input must be an array of products' });
       }
 
       const seededProducts = [];
       const errors = [];
 
       for (const p of products) {
-          try {
-              // Note: For prisma Seed, you should use `prisma/seed.js`. But translating it.
-              const productRepo = AppDataSource.getRepository(Product);
-              const existing = await productRepo.findOne({ where: { name: p.name } });
-              if (existing) continue;
+        try {
+          // Note: For prisma Seed, you should use `prisma/seed.js`. But translating it.
+          const productRepo = AppDataSource.getRepository(Product);
+          const existing = await productRepo.findOne({ where: { name: p.name } });
+          if (existing) continue;
 
-              const newProduct = productRepo.create({
-                      name: p.name,
-                      description: p.description,
-                      price: p.price,
-                      category: p.category,
-                      subcategory: p.subcategory,
-                      image: p.image || undefined,
-                      sizes: p.sizes || [],
-                      material: p.material || 'Cotton',
-                      inStock: true, 
-                      isActive: true
-              });
-              await productRepo.save(newProduct);
-              seededProducts.push(newProduct);
-          } catch (err: any) {
-              errors.push({ name: p.name, error: err.message });
-          }
+          const newProduct = productRepo.create({
+            name: p.name,
+            description: p.description,
+            price: p.price,
+            category: p.category,
+            subcategory: p.subcategory,
+            image: p.image || undefined,
+            sizes: p.sizes || [],
+            material: p.material || 'Cotton',
+            inStock: true,
+            isActive: true
+          });
+          await productRepo.save(newProduct);
+          seededProducts.push(newProduct);
+        } catch (err: any) {
+          errors.push({ name: p.name, error: err.message });
+        }
       }
 
       return reply.send({
-          message: `Seeded ${seededProducts.length} products`,
-          seededCount: seededProducts.length,
-          errors
+        message: `Seeded ${seededProducts.length} products`,
+        seededCount: seededProducts.length,
+        errors
       });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -467,8 +468,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const { In } = await import('typeorm');
       const userRepo = AppDataSource.getRepository(User);
       const staff = await userRepo.find({
-          where: { role: In(['admin', 'super_admin']) },
-          order: { createdAt: 'DESC' }
+        where: { role: In(['admin', 'super_admin']) },
+        order: { createdAt: 'DESC' }
       });
       return reply.send(staff.map(s => ({
         id: s.id,
@@ -490,8 +491,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const userRepo = AppDataSource.getRepository(User);
       const orderRepo = AppDataSource.getRepository(Order);
       const customers = await userRepo.find({
-          where: { role: 'customer' },
-          order: { createdAt: 'DESC' }
+        where: { role: 'customer' },
+        order: { createdAt: 'DESC' }
       });
 
       let orderStats: any[] = [];
@@ -534,8 +535,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const orderRepo = AppDataSource.getRepository(Order);
       const orders = await orderRepo.find({
-          relations: ['items', 'items.product'],
-          order: { orderDate: 'DESC' }
+        relations: ['items', 'items.product'],
+        order: { orderDate: 'DESC' }
       });
 
       return reply.send(orders.map(order => ({
@@ -544,12 +545,12 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
         discount: order.discount ? Number(order.discount) : null,
         items: order.items.map(item => ({
-            ...item,
-            price: Number(item.price),
-            product: item.product ? {
-                ...item.product,
-                price: Number(item.product.price)
-            } : null,
+          ...item,
+          price: Number(item.price),
+          product: item.product ? {
+            ...item.product,
+            price: Number(item.product.price)
+          } : null,
         }))
       })));
     } catch (error: any) {
@@ -562,16 +563,16 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const reviewRepo = AppDataSource.getRepository(Review);
       const reviews = await reviewRepo.find({
-          relations: ['product'],
-          order: { createdAt: 'DESC' }
+        relations: ['product'],
+        order: { createdAt: 'DESC' }
       });
 
       return reply.send(reviews.map((r) => ({
-          ...r,
-          product: r.product ? {
-               ...r.product,
-               price: Number(r.product.price)
-          } : null
+        ...r,
+        product: r.product ? {
+          ...r.product,
+          price: Number(r.product.price)
+        } : null
       })));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -580,10 +581,10 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update review approval
   app.patch('/reviews/:id', {
-      schema: {
-          params: z.object({ id: z.string() }),
-          body: z.object({ isApproved: z.boolean() })
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.object({ isApproved: z.boolean() })
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -591,7 +592,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       const reviewRepo = AppDataSource.getRepository(Review);
       const review = await reviewRepo.findOneBy({ id });
-      if(!review) return reply.status(404).send({ error: 'Review not found' });
+      if (!review) return reply.status(404).send({ error: 'Review not found' });
 
       review.isApproved = isApproved;
       await reviewRepo.save(review);
@@ -615,10 +616,10 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update enquiry status
   app.patch('/enquiries/:id', {
-      schema: { 
-          params: z.object({ id: z.string() }),
-          body: z.object({ status: z.string() })
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.object({ status: z.string() })
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -626,7 +627,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       const enquiryRepo = AppDataSource.getRepository(Enquiry);
       const enquiry = await enquiryRepo.findOneBy({ id });
-      if(!enquiry) return reply.status(404).send({ error: 'Enquiry not found' });
+      if (!enquiry) return reply.status(404).send({ error: 'Enquiry not found' });
 
       enquiry.status = status;
       await enquiryRepo.save(enquiry);
@@ -650,29 +651,29 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Create banner
   app.post('/banners', {
-      schema: {
-          body: z.object({
-              title: z.string(),
-              description: z.string().optional(),
-              image: z.string(),
-              link: z.string().optional(),
-              position: z.string().optional(),
-              isActive: z.boolean().optional(),
-              order: z.number().int().optional()
-          })
-      }
+    schema: {
+      body: z.object({
+        title: z.string(),
+        description: z.string().optional(),
+        image: z.string(),
+        link: z.string().optional(),
+        position: z.string().optional(),
+        isActive: z.boolean().optional(),
+        order: z.number().int().optional()
+      })
+    }
   }, async (request, reply) => {
     try {
       const { title, description, image, link, position, isActive, order } = request.body as Record<string, any>;
       const bannerRepo = AppDataSource.getRepository(Banner);
       const banner = bannerRepo.create({
-            title,
-            description,
-            image,
-            link,
-            position: position || 'hero',
-            isActive: isActive !== undefined ? isActive : true,
-            order: order || 0,
+        title,
+        description,
+        image,
+        link,
+        position: position || 'hero',
+        isActive: isActive !== undefined ? isActive : true,
+        order: order || 0,
       });
       await bannerRepo.save(banner);
 
@@ -684,14 +685,14 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update banner
   app.patch('/banners/:id', {
-      schema: {
-          params: z.object({ id: z.string() }),
-          body: z.record(z.string(), z.any())
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.record(z.string(), z.any())
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
-      
+
       const bannerRepo = AppDataSource.getRepository(Banner);
       let banner = await bannerRepo.findOneBy({ id });
       if (!banner) return reply.status(404).send({ error: 'Banner not found' });
@@ -707,7 +708,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Delete banner
   app.delete('/banners/:id', {
-      schema: { params: z.object({ id: z.string() }) }
+    schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -738,31 +739,31 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Create coupon
   app.post('/coupons', {
-      schema: {
-          body: z.object({
-              code: z.string(),
-              discount: z.number(),
-              minAmount: z.number().optional(),
-              maxDiscount: z.number().optional(),
-              validFrom: z.string(),
-              validUntil: z.string(),
-              isActive: z.boolean().optional(),
-              usageLimit: z.number().int().optional()
-          })
-      }
+    schema: {
+      body: z.object({
+        code: z.string(),
+        discount: z.number(),
+        minAmount: z.number().optional(),
+        maxDiscount: z.number().optional(),
+        validFrom: z.string(),
+        validUntil: z.string(),
+        isActive: z.boolean().optional(),
+        usageLimit: z.number().int().optional()
+      })
+    }
   }, async (request, reply) => {
     try {
       const { code, discount, minAmount, maxDiscount, validFrom, validUntil, isActive, usageLimit } = request.body as Record<string, any>;
       const couponRepo = AppDataSource.getRepository(Coupon);
       const coupon = couponRepo.create({
-            code,
-            discount,
-            minAmount: minAmount || undefined,
-            maxDiscount: maxDiscount || undefined,
-            validFrom: new Date(validFrom),
-            validUntil: new Date(validUntil),
-            isActive: isActive !== undefined ? isActive : true,
-            usageLimit: usageLimit || undefined,
+        code,
+        discount,
+        minAmount: minAmount || undefined,
+        maxDiscount: maxDiscount || undefined,
+        validFrom: new Date(validFrom),
+        validUntil: new Date(validUntil),
+        isActive: isActive !== undefined ? isActive : true,
+        usageLimit: usageLimit || undefined,
       });
       await couponRepo.save(coupon);
 
@@ -779,17 +780,17 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update coupon
   app.patch('/coupons/:id', {
-      schema: {
-          params: z.object({ id: z.string() }),
-          body: z.record(z.string(), z.any())
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.record(z.string(), z.any())
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
-      
+
       const couponRepo = AppDataSource.getRepository(Coupon);
       let coupon = await couponRepo.findOneBy({ id });
-      if(!coupon) return reply.status(404).send({ error: 'Coupon not found' });
+      if (!coupon) return reply.status(404).send({ error: 'Coupon not found' });
 
       Object.assign(coupon, request.body);
       await couponRepo.save(coupon);
@@ -807,7 +808,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Delete coupon
   app.delete('/coupons/:id', {
-      schema: { params: z.object({ id: z.string() }) }
+    schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -821,28 +822,28 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update customer role (super_admin only) - must be registered BEFORE /:id to avoid conflict
   app.patch('/customers/:id/role', {
-      schema: {
-          params: z.object({ id: z.string() }),
-          body: z.object({ role: z.enum(['customer', 'admin']) })
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.object({ role: z.enum(['customer', 'admin']) })
+    }
   }, async (request, reply) => {
     try {
       const authUser = (request as any).user;
       if (authUser.role !== 'super_admin') {
-         return reply.status(403).send({ error: 'Only super admin can change roles' });
+        return reply.status(403).send({ error: 'Only super admin can change roles' });
       }
 
       const { id } = request.params as { id: string };
       const { role } = request.body as { role: 'customer' | 'admin' };
-      
+
       const userRepo = AppDataSource.getRepository(User);
       const customer = await userRepo.findOne({
-          where: { id },
+        where: { id },
       });
       if (!customer) return reply.status(404).send({ error: 'User not found' });
-      
+
       if (customer.role === 'super_admin') {
-          return reply.status(400).send({ error: 'Cannot change super admin role' });
+        return reply.status(400).send({ error: 'Cannot change super admin role' });
       }
 
       customer.role = role;
@@ -850,12 +851,12 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
       const auditRepo = AppDataSource.getRepository(AuditLog);
       await auditRepo.save({
-          adminId: authUser.id,
-          adminEmail: authUser.email,
-          action: 'UPDATE_ROLE',
-          entityType: 'USER',
-          entityId: customer.id,
-          details: JSON.stringify({ oldRole: customer.role === role ? 'same' : (role === 'admin' ? 'customer' : 'admin'), newRole: role })
+        adminId: authUser.id,
+        adminEmail: authUser.email,
+        action: 'UPDATE_ROLE',
+        entityType: 'USER',
+        entityId: customer.id,
+        details: JSON.stringify({ oldRole: customer.role === role ? 'same' : (role === 'admin' ? 'customer' : 'admin'), newRole: role })
       });
 
       return reply.send({
@@ -869,19 +870,19 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Update customer status
   app.patch('/customers/:id', {
-      schema: {
-          params: z.object({ id: z.string() }),
-          body: z.object({ isActive: z.boolean() })
-      }
+    schema: {
+      params: z.object({ id: z.string() }),
+      body: z.object({ isActive: z.boolean() })
+    }
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const { isActive } = request.body as { isActive: boolean };
-      
+
       const userRepo = AppDataSource.getRepository(User);
       const customer = await userRepo.findOne({
-          where: { id },
-          select: ['id', 'name', 'email', 'phone', 'isActive', 'role']
+        where: { id },
+        select: ['id', 'name', 'email', 'phone', 'isActive', 'role']
       });
       if (!customer) return reply.status(404).send({ error: 'Customer not found' });
 
@@ -899,21 +900,21 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
 
   // Delete customer (super_admin only)
   app.delete('/customers/:id', {
-      schema: { params: z.object({ id: z.string() }) }
+    schema: { params: z.object({ id: z.string() }) }
   }, async (request, reply) => {
     try {
       const authUser = (request as any).user;
       if (authUser.role !== 'super_admin') {
-         return reply.status(403).send({ error: 'Only super admin can delete users' });
+        return reply.status(403).send({ error: 'Only super admin can delete users' });
       }
 
       const { id } = request.params as { id: string };
       const userRepo = AppDataSource.getRepository(User);
       const customer = await userRepo.findOne({ where: { id } });
-      
+
       if (!customer) return reply.status(404).send({ error: 'User not found' });
       if (customer.role === 'super_admin') {
-          return reply.status(400).send({ error: 'Cannot delete super admin' });
+        return reply.status(400).send({ error: 'Cannot delete super admin' });
       }
 
       // Safely clear out dependent tracking records before deleting user
@@ -931,20 +932,20 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const orderRepo = AppDataSource.getRepository(Order);
       const orders = await orderRepo.find({ where: { userId: id } });
       for (const order of orders) {
-          order.userId = undefined;
-          await orderRepo.save(order);
+        order.userId = undefined;
+        await orderRepo.save(order);
       }
 
       await userRepo.remove(customer);
-      
+
       const auditRepo = AppDataSource.getRepository(AuditLog);
       await auditRepo.save({
-          adminId: authUser.id,
-          adminEmail: authUser.email,
-          action: 'DELETE_USER',
-          entityType: 'USER',
-          entityId: id,
-          details: JSON.stringify({ deletedEmail: customer.email, oldRole: customer.role })
+        adminId: authUser.id,
+        adminEmail: authUser.email,
+        action: 'DELETE_USER',
+        entityType: 'USER',
+        entityId: id,
+        details: JSON.stringify({ deletedEmail: customer.email, oldRole: customer.role })
       });
 
       return reply.send({ message: 'User deleted successfully' });
@@ -958,13 +959,13 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const authUser = (request as any).user;
       if (authUser.role !== 'super_admin') {
-         return reply.status(403).send({ error: 'Only super admin can view audit logs' });
+        return reply.status(403).send({ error: 'Only super admin can view audit logs' });
       }
 
       const auditRepo = AppDataSource.getRepository(AuditLog);
       const logs = await auditRepo.find({
-          order: { createdAt: 'DESC' },
-          take: 100 // limit to last 100 for safety
+        order: { createdAt: 'DESC' },
+        take: 100 // limit to last 100 for safety
       });
 
       return reply.send(logs);
@@ -978,8 +979,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const notificationRepo = AppDataSource.getRepository(Notification);
       const notifications = await notificationRepo.find({
-          order: { createdAt: 'DESC' },
-          take: 50
+        order: { createdAt: 'DESC' },
+        take: 50
       });
       return reply.send(notifications);
     } catch (error: any) {
@@ -995,12 +996,12 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const { id } = request.params as any;
       const notificationRepo = AppDataSource.getRepository(Notification);
       const notification = await notificationRepo.findOne({ where: { id } });
-      
+
       if (!notification) return reply.status(404).send({ error: 'Notification not found' });
-      
+
       notification.isRead = true;
       await notificationRepo.save(notification);
-      
+
       return reply.send(notification);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -1012,16 +1013,16 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const returnRepo = AppDataSource.getRepository(ReturnRequest);
       const returns = await returnRepo.find({
-          relations: ['user', 'order'],
-          order: { createdAt: 'DESC' }
+        relations: ['user', 'order'],
+        order: { createdAt: 'DESC' }
       });
       return reply.send(returns.map(r => ({
-          ...r,
-          userName: r.user?.name || 'Unknown',
-          userEmail: r.user?.email || 'Unknown',
-          orderTotal: r.order?.total || 0,
-          customerPhone: r.order?.customerPhone || '',
-          orderDate: r.order?.orderDate || r.createdAt
+        ...r,
+        userName: r.user?.name || 'Unknown',
+        userEmail: r.user?.email || 'Unknown',
+        orderTotal: r.order?.total || 0,
+        customerPhone: r.order?.customerPhone || '',
+        orderDate: r.order?.orderDate || r.createdAt
       })));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
@@ -1038,19 +1039,19 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
     try {
       const { id } = request.params as any;
       const { status, adminNotes } = request.body as any;
-      
+
       const returnRepo = AppDataSource.getRepository(ReturnRequest);
       const returnReq = await returnRepo.findOne({ where: { id } });
-      
+
       if (!returnReq) return reply.status(404).send({ error: 'Return request not found' });
-      
+
       // Delete images from S3 if request is being finalized
       if (['Approved', 'Rejected', 'Processed'].includes(status)) {
         if (returnReq.images && returnReq.images.length > 0) {
           await Promise.all(
             returnReq.images.map(img => {
               if (isS3Key(img)) {
-                return deleteFromS3(img).catch(err => 
+                return deleteFromS3(img).catch(err =>
                   console.error(`Failed to delete return image ${img}:`, err)
                 );
               }
@@ -1063,7 +1064,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       returnReq.status = status;
       if (adminNotes !== undefined) returnReq.adminNotes = adminNotes;
       await returnRepo.save(returnReq);
-      
+
       return reply.send(returnReq);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
