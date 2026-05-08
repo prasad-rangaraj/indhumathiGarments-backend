@@ -16,7 +16,6 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { categorySchema, productSchema } from '../lib/validators.js';
 import { z } from 'zod';
 import { resolveImageUrl, deleteFromS3, isS3Key } from '../lib/s3.js';
-import { Review } from '../entities/Review.js';
 
 // ─── Helper: resolve all image fields on a product ────────────────────────────
 const withSignedImages = async (p: Product) => {
