@@ -4,6 +4,21 @@ import { z } from 'zod';
 import { AppDataSource } from '../lib/db.js';
 import { Product } from '../entities/Product.js';
 import { Like, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
+import { resolveImageUrl } from '../lib/s3.js';
+
+// ─── Helper: resolve all image fields on a product ────────────────────────────
+const withSignedImages = async (p: Product) => {
+  const [image, ...resolvedImages] = await Promise.all([
+    resolveImageUrl(p.image),
+    ...(p.images ?? []).map(resolveImageUrl),
+  ]);
+  return {
+    ...p,
+    price: Number(p.price),
+    image,
+    images: resolvedImages,
+  };
+};
 
 export default async function productRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -24,17 +39,13 @@ export default async function productRoutes(appInstance: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { category, subcategory, search, minPrice, maxPrice, page, limit } = request.query as any;
-      
+
       const productRepo = AppDataSource.getRepository(Product);
-      
       const whereParams: any = { isActive: true };
 
       if (category) whereParams.category = category;
       if (subcategory) whereParams.subcategory = subcategory;
-
-      if (search) {
-        whereParams.name = Like(`%${search}%`);
-      }
+      if (search) whereParams.name = Like(`%${search}%`);
 
       if (minPrice && maxPrice) {
         whereParams.price = Between(minPrice, maxPrice);
@@ -45,7 +56,6 @@ export default async function productRoutes(appInstance: FastifyInstance) {
       }
 
       const skip = (page - 1) * limit;
-
       const [products, total] = await productRepo.findAndCount({
         where: whereParams,
         order: { createdAt: 'DESC' },
@@ -53,11 +63,11 @@ export default async function productRoutes(appInstance: FastifyInstance) {
         take: limit
       });
 
+      // Generate pre-signed URLs for all product images in parallel
+      const resolvedProducts = await Promise.all(products.map(withSignedImages));
+
       return reply.send({
-        products: products.map(p => ({
-            ...p,
-            price: Number(p.price)
-        })),
+        products: resolvedProducts,
         total,
         page,
         limit,
@@ -78,7 +88,6 @@ export default async function productRoutes(appInstance: FastifyInstance) {
         select: ['name', 'image', 'metaTitle', 'metaDescription']
       });
 
-      // Also get subcategories from products to keep the structure
       const productRepo = AppDataSource.getRepository(Product);
       const products = await productRepo.find({
         where: { isActive: true },
@@ -86,8 +95,7 @@ export default async function productRoutes(appInstance: FastifyInstance) {
       });
 
       const categoryMap: Record<string, any> = {};
-      
-      // Initialize with full category data
+
       categories.forEach(cat => {
         categoryMap[cat.name] = {
           name: cat.name,
@@ -98,7 +106,6 @@ export default async function productRoutes(appInstance: FastifyInstance) {
         };
       });
 
-      // Add subcategories and ensure categories exist even if not in Category entity
       products.forEach(({ category, subcategory }) => {
         if (!categoryMap[category]) {
           categoryMap[category] = { name: category, subcategories: [] };
@@ -107,6 +114,13 @@ export default async function productRoutes(appInstance: FastifyInstance) {
           categoryMap[category].subcategories.push(subcategory);
         }
       });
+
+      // Resolve category images too
+      for (const key of Object.keys(categoryMap)) {
+        if (categoryMap[key].image) {
+          categoryMap[key].image = await resolveImageUrl(categoryMap[key].image);
+        }
+      }
 
       return reply.send(categoryMap);
     } catch (error: any) {
@@ -123,18 +137,13 @@ export default async function productRoutes(appInstance: FastifyInstance) {
     try {
       const { id } = request.params as any;
       const productRepo = AppDataSource.getRepository(Product);
-      const product = await productRepo.findOne({
-        where: { id }
-      });
-      
+      const product = await productRepo.findOne({ where: { id } });
+
       if (!product) {
         return reply.status(404).send({ error: 'Product not found' });
       }
 
-      return reply.send({
-        ...product,
-        price: Number(product.price)
-      });
+      return reply.send(await withSignedImages(product));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
