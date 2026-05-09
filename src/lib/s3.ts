@@ -31,25 +31,27 @@ export const uploadToS3 = async (
   return key;
 };
 
-// ─── Generate a pre-signed URL (valid for 1 hour) ────────────────────────────
+// ─── Generate a pre-signed URL (valid for 7 days) ───────────────────────────
 // Cache signed URLs in memory so the same URL string is returned across API calls.
 // This allows the browser to cache the actual image file.
+// 7-day expiry prevents images from breaking between page visits.
 const urlCache = new Map<string, { url: string; expiresAt: number }>();
 
-export const getPresignedUrl = async (key: string, expiresInSeconds = 3600): Promise<string> => {
+const SEVEN_DAYS_IN_SECONDS = 7 * 24 * 60 * 60; // 604800 seconds
+const ONE_HOUR_IN_MS = 60 * 60 * 1000;
+
+export const getPresignedUrl = async (key: string, expiresInSeconds = SEVEN_DAYS_IN_SECONDS): Promise<string> => {
   const now = Date.now();
   const cached = urlCache.get(key);
   
-  // If we have a cached URL and it's valid for at least 5 more minutes, reuse it
-  if (cached && cached.expiresAt > now + 5 * 60 * 1000) {
+  // Reuse cached URL if it's still valid for at least 1 more hour
+  if (cached && cached.expiresAt > now + ONE_HOUR_IN_MS) {
     return cached.url;
   }
 
   const command = new GetObjectCommand({ 
     Bucket: S3_BUCKET, 
     Key: key,
-    // Tell the browser to cache this image aggressively since the URL will be the same
-    ResponseCacheControl: 'public, max-age=31536000, immutable'
   });
   
   const url = await getSignedUrl(s3, command, { expiresIn: expiresInSeconds });
