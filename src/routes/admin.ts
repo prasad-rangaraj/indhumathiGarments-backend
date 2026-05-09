@@ -248,7 +248,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         subcategory: data.subcategory,
         sizes: data.sizes || [],
         images: data.images || [],
-        inStock: data.inStock !== undefined ? data.inStock : true,
+        inStock: data.inStock !== undefined ? data.inStock : (data.stock > 0),
+        stock: data.stock || 0,
         isActive: data.isActive !== undefined ? data.isActive : true,
         metaTitle: data.metaTitle,
         metaDescription: data.metaDescription,
@@ -268,7 +269,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Create product
   app.post('/products', { schema: { body: productSchema } }, async (request, reply) => {
     try {
-      const { name, description, price, image, images, material, category, subcategory, sizes, inStock, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof productSchema>;
+      const { name, description, price, image, images, material, category, subcategory, sizes, inStock, stock, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof productSchema>;
 
       const productRepo = AppDataSource.getRepository(Product);
       const product = productRepo.create({
@@ -282,7 +283,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         sizes: sizes || [],
         images: images || [], // Store multiple images
 
-        inStock: inStock !== undefined ? inStock : true,
+        inStock: inStock !== undefined ? inStock : (stock > 0),
+        stock: stock || 0,
         isActive: isActive !== undefined ? isActive : true,
         metaTitle,
         metaDescription,

@@ -38,6 +38,7 @@ export const productSchema = z.object({
   sizes: z.array(z.string()).default([]),
   material: z.string().optional(),
   inStock: z.boolean().optional(),
+  stock: z.number().int().min(0).default(0),
   isActive: z.boolean().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
