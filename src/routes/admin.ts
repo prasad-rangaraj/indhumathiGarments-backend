@@ -23,11 +23,23 @@ const withSignedImages = async (p: Product) => {
     resolveImageUrl(p.image),
     ...(p.images ?? []).map(resolveImageUrl),
   ]);
+
+  let resolvedColors = p.colors;
+  if (p.colors && Array.isArray(p.colors)) {
+    resolvedColors = await Promise.all(
+      p.colors.map(async (color) => {
+        const cImages = await Promise.all((color.images || []).map(resolveImageUrl));
+        return { ...color, images: cImages };
+      })
+    );
+  }
+
   return {
     ...p,
     price: Number(p.price),
     image,
     images: resolvedImages,
+    colors: resolvedColors,
   };
 };
 
@@ -171,7 +183,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Create category
   app.post('/categories', { schema: { body: categorySchema } }, async (request, reply) => {
     try {
-      const { name, description, image, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof categorySchema>;
+      const { name, description, image, isActive, metaTitle, metaDescription, gender } = request.body as z.infer<typeof categorySchema>;
       const categoryRepo = AppDataSource.getRepository(Category);
       const category = categoryRepo.create({
         name,
@@ -180,6 +192,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         isActive: isActive !== undefined ? isActive : true,
         metaTitle,
         metaDescription,
+        gender: gender || 'unisex',
       });
       await categoryRepo.save(category);
       return reply.status(201).send(category);
@@ -269,7 +282,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Create product
   app.post('/products', { schema: { body: productSchema } }, async (request, reply) => {
     try {
-      const { name, description, price, image, images, material, category, subcategory, sizes, inStock, stock, isActive, metaTitle, metaDescription } = request.body as z.infer<typeof productSchema>;
+      const { name, description, price, image, images, material, category, subcategory, sizes, colors, inStock, stock, isActive, metaTitle, metaDescription, gender } = request.body as z.infer<typeof productSchema>;
 
       const productRepo = AppDataSource.getRepository(Product);
       const product = productRepo.create({
@@ -281,13 +294,14 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         category,
         subcategory,
         sizes: sizes || [],
-        images: images || [], // Store multiple images
-
+        colors: colors || [],
+        images: images || [],
         inStock: inStock !== undefined ? inStock : (stock > 0),
         stock: stock || 0,
         isActive: isActive !== undefined ? isActive : true,
         metaTitle,
         metaDescription,
+        gender: gender || 'women',
       });
       await productRepo.save(product);
       return reply.status(201).send(await withSignedImages(product));
@@ -310,11 +324,13 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         category: z.string().optional(),
         subcategory: z.string().optional(),
         sizes: z.array(z.string()).optional(),
+        colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()) })).optional(),
         stock: z.number().optional(),
         inStock: z.boolean().optional(),
         isActive: z.boolean().optional(),
         metaTitle: z.string().optional(),
         metaDescription: z.string().optional(),
+        gender: z.enum(['women', 'men', 'unisex']).optional(),
       })
     }
   }, async (request, reply) => {
@@ -325,6 +341,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const updateData: any = {};
 
       if (body.sizes) updateData.sizes = body.sizes;
+      if (body.colors) updateData.colors = body.colors;
       if (body.price !== undefined) updateData.price = body.price;
       if (body.stock !== undefined) {
         updateData.stock = body.stock;

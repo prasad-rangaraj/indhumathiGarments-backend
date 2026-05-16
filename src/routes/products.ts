@@ -12,11 +12,23 @@ const withSignedImages = async (p: Product) => {
     resolveImageUrl(p.image),
     ...(p.images ?? []).map(resolveImageUrl),
   ]);
+
+  let resolvedColors = p.colors;
+  if (p.colors && Array.isArray(p.colors)) {
+    resolvedColors = await Promise.all(
+      p.colors.map(async (color) => {
+        const cImages = await Promise.all((color.images || []).map(resolveImageUrl));
+        return { ...color, images: cImages };
+      })
+    );
+  }
+
   return {
     ...p,
     price: Number(p.price),
     image,
     images: resolvedImages,
+    colors: resolvedColors,
   };
 };
 

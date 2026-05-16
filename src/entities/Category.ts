@@ -23,6 +23,9 @@ export class Category {
   @Column({ type: 'text', nullable: true })
   metaDescription?: string;
 
+  @Column({ type: 'varchar', nullable: true, default: 'unisex' })
+  gender?: 'women' | 'men' | 'unisex';
+
   @CreateDateColumn()
   createdAt!: Date;
 

@@ -31,11 +31,17 @@ export class Product {
   @Column({ type: 'varchar' })
   subcategory!: string;
 
+  @Column({ type: 'varchar', nullable: true, default: 'women' })
+  gender?: 'women' | 'men' | 'unisex';
+
   @Column({ type: 'simple-json', nullable: true })
   images?: string[];
 
   @Column({ type: 'simple-json', nullable: true })
   sizes?: string[];
+
+  @Column({ type: 'simple-json', nullable: true })
+  colors?: { name: string; hex?: string; images: string[] }[];
 
   @Column({ type: 'int', default: 0 })
   stock!: number;

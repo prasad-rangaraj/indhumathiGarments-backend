@@ -25,6 +25,7 @@ export const categorySchema = z.object({
   isActive: z.boolean().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
+  gender: z.enum(['women', 'men', 'unisex']).optional().default('unisex'),
 });
 
 export const productSchema = z.object({
@@ -36,12 +37,14 @@ export const productSchema = z.object({
   image: z.string().optional().nullable(),
   images: z.array(z.string()).optional(),
   sizes: z.array(z.string()).default([]),
+  colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()) })).optional(),
   material: z.string().optional(),
   inStock: z.boolean().optional(),
   stock: z.number().int().min(0).default(0),
   isActive: z.boolean().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
+  gender: z.enum(['women', 'men', 'unisex']).optional().default('women'),
 });
 // Cart Schema
 export const cartSchema = z.object({
