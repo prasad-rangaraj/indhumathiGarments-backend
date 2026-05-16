@@ -15,7 +15,7 @@ import { protect, admin } from '../middleware/auth.js';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { categorySchema, productSchema } from '../lib/validators.js';
 import { z } from 'zod';
-import { resolveImageUrl, deleteFromS3, isS3Key } from '../lib/s3.js';
+import { resolveImageUrl, deleteFromS3, isS3Key, extractS3Key } from '../lib/s3.js';
 
 // ─── Helper: resolve all image fields on a product ────────────────────────────
 const withSignedImages = async (p: Product) => {
@@ -351,8 +351,17 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       if (body.inStock !== undefined) updateData.inStock = body.inStock;
       if (body.name) updateData.name = body.name;
       if (body.description !== undefined) updateData.description = body.description;
-      if (body.image !== undefined) updateData.image = body.image;
-      if (body.images !== undefined) updateData.images = body.images;
+      if (body.image !== undefined) updateData.image = extractS3Key(body.image);
+      if (body.images !== undefined) {
+        updateData.images = body.images.map((img: string) => extractS3Key(img)).filter(Boolean);
+      }
+      if (body.colors) {
+        updateData.colors = body.colors.map((c: any) => ({
+          ...c,
+          images: (c.images || []).map((img: string) => extractS3Key(img)).filter(Boolean)
+        }));
+      }
+
       if (body.material) updateData.material = body.material;
       if (body.category) updateData.category = body.category;
       if (body.subcategory) updateData.subcategory = body.subcategory;

@@ -61,3 +61,14 @@ export const resolveImageUrl = async (imagePathOrKey: string | undefined | null)
   // It's an S3 key — generate a pre-signed URL
   return getPresignedUrl(imagePathOrKey);
 };
+
+// ─── Helper: Convert an S3 URL back into an S3 Key ───────────────────────────
+export const extractS3Key = (urlOrKey: string | undefined | null): string | null => {
+  if (!urlOrKey) return null;
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const prefix = `https://${S3_BUCKET}.s3.${region}.amazonaws.com/`;
+  if (urlOrKey.startsWith(prefix)) {
+    return urlOrKey.slice(prefix.length);
+  }
+  return urlOrKey;
+};
