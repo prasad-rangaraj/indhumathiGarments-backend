@@ -30,7 +30,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
       // Generate a short-lived pre-signed URL for immediate preview in admin
       const { getPresignedUrl } = await import('../lib/s3.js');
-      const previewUrl = await getPresignedUrl(key, 3600); // 1 hour
+      const previewUrl = await getPresignedUrl(key); // Uses default 7-day expiry
 
       // Return both: key (store in DB), previewUrl (show in admin preview)
       return reply.status(200).send({

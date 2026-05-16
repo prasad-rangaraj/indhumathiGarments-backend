@@ -18,7 +18,7 @@ const withSignedImages = async (p: Product) => {
     resolvedColors = await Promise.all(
       p.colors.map(async (color) => {
         const cImages = await Promise.all((color.images || []).map(resolveImageUrl));
-        return { ...color, images: cImages };
+        return { ...color, images: cImages.filter((img): img is string => img !== null) };
       })
     );
   }

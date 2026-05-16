@@ -29,7 +29,7 @@ const withSignedImages = async (p: Product) => {
     resolvedColors = await Promise.all(
       p.colors.map(async (color) => {
         const cImages = await Promise.all((color.images || []).map(resolveImageUrl));
-        return { ...color, images: cImages };
+        return { ...color, images: cImages.filter((img): img is string => img !== null) };
       })
     );
   }
@@ -367,6 +367,29 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         return reply.status(404).send({ error: 'Product not found' });
       }
 
+      // Cleanup orphaned images from S3
+      const oldImages = [
+        product.image,
+        ...(product.images || []),
+        ...(product.colors || []).flatMap(c => c.images || [])
+      ].filter(Boolean) as string[];
+
+      const newImages = [
+        updateData.image !== undefined ? updateData.image : product.image,
+        ...(updateData.images !== undefined ? updateData.images : (product.images || [])),
+        ...(updateData.colors !== undefined ? updateData.colors.flatMap((c: any) => c.images || []) : ((product.colors || []).flatMap(c => c.images || [])))
+      ].filter(Boolean) as string[];
+
+      const orphanedImages = oldImages.filter(img => !newImages.includes(img) && isS3Key(img));
+      
+      for (const imgKey of orphanedImages) {
+        try {
+          await deleteFromS3(imgKey);
+        } catch (e) {
+          console.error(`Failed to delete orphaned image ${imgKey} from S3:`, e);
+        }
+      }
+
       Object.assign(product, updateData);
       await productRepo.save(product);
       return reply.send(await withSignedImages(product));
@@ -402,6 +425,16 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       if (product.images && Array.isArray(product.images)) {
         product.images.forEach(img => {
           if (img && isS3Key(img)) keysToDelete.add(img);
+        });
+      }
+
+      if (product.colors && Array.isArray(product.colors)) {
+        product.colors.forEach(color => {
+          if (color.images && Array.isArray(color.images)) {
+            color.images.forEach(img => {
+              if (img && isS3Key(img)) keysToDelete.add(img);
+            });
+          }
         });
       }
 
