@@ -178,7 +178,26 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
       const addressRepo = AppDataSource.getRepository(Address);
-      await addressRepo.delete({ id });
+      
+      const addressToDelete = await addressRepo.findOneBy({ id });
+      if (addressToDelete) {
+          const userId = addressToDelete.userId;
+          const wasDefault = addressToDelete.isDefault;
+          
+          await addressRepo.delete({ id });
+          
+          if (wasDefault) {
+              const anotherAddress = await addressRepo.findOne({
+                  where: { userId },
+                  order: { createdAt: 'DESC' }
+              });
+              if (anotherAddress) {
+                  anotherAddress.isDefault = true;
+                  await addressRepo.save(anotherAddress);
+              }
+          }
+      }
+      
       return reply.send({ message: 'Address deleted successfully' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
