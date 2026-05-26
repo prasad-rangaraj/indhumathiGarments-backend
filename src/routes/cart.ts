@@ -5,6 +5,7 @@ import { protect } from '../middleware/auth.js';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { cartSchema } from '../lib/validators.js';
 import { z } from 'zod';
+import { resolveImageUrl } from '../lib/s3.js';
 
 export default async function cartRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -33,23 +34,32 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
          }
       }
 
-      return reply.send(validItems.map(cartItem => {
-          const product = cartItem.product;
+      const resolvedItems = await Promise.all(validItems.map(async (cartItem) => {
+          const product = cartItem.product!;
+          const [image, ...resolvedImages] = await Promise.all([
+            resolveImageUrl(product.image),
+            ...(product.images ?? []).map(resolveImageUrl),
+          ]);
+          
           return {
               id: cartItem.id,
               userId: cartItem.userId,
-              productId: product!.id,
+              productId: product.id,
               quantity: cartItem.quantity,
               size: cartItem.size,
               color: cartItem.color,
               createdAt: cartItem.createdAt,
               updatedAt: cartItem.updatedAt,
               product: {
-                  ...product!,
-                  price: Number(product!.price)
+                  ...product,
+                  price: Number(product.price),
+                  image,
+                  images: resolvedImages,
               },
           };
       }));
+
+      return reply.send(resolvedItems);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -95,6 +105,10 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
       }
 
       const product = cartItem.product;
+      const [image, ...resolvedImages] = await Promise.all([
+        resolveImageUrl(product.image),
+        ...(product.images ?? []).map(resolveImageUrl),
+      ]);
 
       return reply.status(201).send({
           id: cartItem.id,
@@ -107,7 +121,9 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
           updatedAt: cartItem.updatedAt,
           product: {
               ...product,
-              price: Number(product.price)
+              price: Number(product.price),
+              image,
+              images: resolvedImages,
           },
       });
     } catch (error: any) {
@@ -142,6 +158,10 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
       const cartItem = await cartItemRepo.save(existing);
 
       const product = cartItem.product; 
+      const [image, ...resolvedImages] = await Promise.all([
+        resolveImageUrl(product.image),
+        ...(product.images ?? []).map(resolveImageUrl),
+      ]);
 
       return reply.send({
           id: cartItem.id,
@@ -154,7 +174,9 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
           updatedAt: cartItem.updatedAt,
           product: {
               ...product,
-              price: Number(product.price)
+              price: Number(product.price),
+              image,
+              images: resolvedImages,
           },
       });
     } catch (error: any) {
