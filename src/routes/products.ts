@@ -7,7 +7,7 @@ import { Like, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { resolveImageUrl } from '../lib/s3.js';
 
 // ─── Helper: resolve all image fields on a product ────────────────────────────
-const withSignedImages = async (p: Product) => {
+export const withSignedImages = async (p: Product) => {
   const [image, ...resolvedImages] = await Promise.all([
     resolveImageUrl(p.image),
     ...(p.images ?? []).map(resolveImageUrl),

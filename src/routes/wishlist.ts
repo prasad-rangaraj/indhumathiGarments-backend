@@ -5,6 +5,7 @@ import { protect } from '../middleware/auth.js';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { wishlistSchema } from '../lib/validators.js';
 import { z } from 'zod';
+import { withSignedImages } from './products.js';
 
 export default async function wishlistRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -24,19 +25,19 @@ export default async function wishlistRoutes(appInstance: FastifyInstance) {
 
       const validItems = items.filter(item => item.product !== null);
 
-      return reply.send(validItems.map(item => {
+      const resolvedItems = await Promise.all(validItems.map(async item => {
           const product = item.product!;
+          const resolvedProduct = await withSignedImages(product);
           return {
             id: item.id,
             userId: item.userId,
             productId: product.id,
             createdAt: item.createdAt, 
-            product: {
-              ...product,
-              price: Number(product.price)
-            },
+            product: resolvedProduct,
           };
       }));
+
+      return reply.send(resolvedItems);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -68,16 +69,14 @@ export default async function wishlistRoutes(appInstance: FastifyInstance) {
       }) as WishlistItem;
       
       const product = wishlistItem.product;
+      const resolvedProduct = await withSignedImages(product);
 
       return reply.status(201).send({
         id: wishlistItem.id,
         userId: wishlistItem.userId,
         productId: product.id,
         createdAt: wishlistItem.createdAt, 
-        product: {
-          ...product,
-          price: Number(product.price)
-        },
+        product: resolvedProduct,
       });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
