@@ -18,7 +18,14 @@ export const withSignedImages = async (p: Product) => {
     resolvedColors = await Promise.all(
       p.colors.map(async (color) => {
         const cImages = await Promise.all((color.images || []).map(resolveImageUrl));
-        return { ...color, images: cImages.filter((img): img is string => img !== null) };
+        const resolvedPrimary = color.primaryImage
+          ? await resolveImageUrl(color.primaryImage)
+          : (cImages.length > 1 ? cImages[1] : (cImages[0] ?? null));
+        return {
+          ...color,
+          images: cImages.filter((img): img is string => img !== null),
+          primaryImage: resolvedPrimary,
+        };
       })
     );
   }

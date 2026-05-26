@@ -21,9 +21,14 @@ export default async function uploadPublicRoutes(app: FastifyInstance) {
       // Read the file into a buffer
       const buffer = await toBuffer(data.file);
 
-      // Build a clean S3 key: public-uploads/<timestamp>-<sanitized-filename>
+      // Get folder from query, default to 'public-uploads'
+      const query = request.query as { folder?: string };
+      let folderName = (query.folder || 'public-uploads').replace(/[^a-zA-Z0-9.\-_]/g, '');
+      if (!folderName) folderName = 'public-uploads'; // Fallback if only special chars were provided
+
+      // Build a clean S3 key: folder/<timestamp>-<sanitized-filename>
       const sanitized = data.filename.replace(/[^a-zA-Z0-9.\-_]/g, '');
-      const key = `public-uploads/${Date.now()}-${sanitized}`;
+      const key = `${folderName}/${Date.now()}-${sanitized}`;
 
       // Upload privately to S3
       await uploadToS3(key, buffer, data.mimetype);

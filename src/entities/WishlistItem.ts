@@ -13,6 +13,9 @@ export class WishlistItem {
   @Column({ type: 'varchar' })
   productId!: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  color?: string;
+
   @ManyToOne('Product', (product: any) => product.wishlistItems, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'productId' })
   product!: Relation<Product>;

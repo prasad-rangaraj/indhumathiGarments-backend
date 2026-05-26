@@ -12,6 +12,8 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { orderSchema } from '../lib/validators.js';
 import sendEmail from '../lib/email.js';
 import { z } from 'zod';
+import { withSignedImages } from './products.js';
+import { resolveImageUrl } from '../lib/s3.js';
 
 export default async function orderRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -20,20 +22,38 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
   app.addHook('preHandler', protect);
 
   // Helper to map order for response
-  const mapOrder = (order: any) => ({
-    ...order,
-    total: Number(order.total),
-    originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
-    discount: order.discount ? Number(order.discount) : null,
-    items: order.items.map((item: any) => ({
-      ...item,
-      price: Number(item.price),
-      product: item.product ? {
-        ...item.product,
-        price: Number(item.product.price)
-      } : null,
-    })),
-  });
+  const mapOrderAsync = async (order: any) => {
+    const resolvedItems = await Promise.all(order.items.map(async (item: any) => {
+      let resolvedProduct = null;
+      let resolvedItemImage = null;
+
+      if (item.product) {
+        resolvedProduct = await withSignedImages(item.product);
+        resolvedProduct.price = Number(resolvedProduct.price);
+      }
+
+      if (item.image) {
+        resolvedItemImage = await resolveImageUrl(item.image);
+      } else if (resolvedProduct) {
+        resolvedItemImage = resolvedProduct.image || resolvedProduct.images?.[0];
+      }
+
+      return {
+        ...item,
+        price: Number(item.price),
+        image: resolvedItemImage,
+        product: resolvedProduct,
+      };
+    }));
+
+    return {
+      ...order,
+      total: Number(order.total),
+      originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
+      discount: order.discount ? Number(order.discount) : null,
+      items: resolvedItems,
+    };
+  };
 
   // Get all orders (for a user or admin)
   app.get('/', {
@@ -65,7 +85,8 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
         order: { orderDate: 'DESC' }
       });
 
-      return reply.send(orders.map(mapOrder));
+      const resolvedOrders = await Promise.all(orders.map(o => mapOrderAsync(o)));
+      return reply.send(resolvedOrders);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -95,7 +116,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
         return reply.status(403).send({ error: 'Not authorized to view this order' });
       }
 
-      return reply.send(mapOrder(order));
+      return reply.send(await mapOrderAsync(order));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -151,7 +172,12 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
 
           const linePrice = Number(product.price) * item.quantity;
           serverTotal += linePrice;
-          enrichedItems.push({ ...item, price: Number(product.price) });
+          enrichedItems.push({ 
+             ...item, 
+             price: Number(product.price),
+             name: product.name,
+             image: product.image || (product.images && product.images[0]) || null
+          });
         }
 
         // We passed discount from frontend to identify coupon value. Ideally coupon logic should भी server side completely,
@@ -196,6 +222,8 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
                 size: item.selectedSize || item.size || '',
                 color: item.selectedColor || item.color,
                 price: item.price,
+                name: item.name,
+                image: item.image,
             }))
         });
 
@@ -236,7 +264,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
         console.error('Failed to send order confirmation email:', emailError);
       }
 
-      return reply.status(201).send(mapOrder(order));
+      return reply.status(201).send(await mapOrderAsync(order));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -282,7 +310,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
           details: JSON.stringify({ newStatus: status })
       });
 
-      return reply.send(mapOrder(order));
+      return reply.send(await mapOrderAsync(order));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -344,7 +372,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
           details: JSON.stringify({ cancelledBy: user.role, reason: reason || 'Customer 24h Cancel' })
       });
 
-      return reply.send(mapOrder(existingOrder));
+      return reply.send(await mapOrderAsync(existingOrder));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -393,7 +421,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
           details: JSON.stringify({ delayedDeliveryDate, delayReason })
       });
 
-      return reply.send(mapOrder(existingOrder));
+      return reply.send(await mapOrderAsync(existingOrder));
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -432,6 +460,10 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
           status: 'Pending'
       });
       await returnRepo.save(newReturn);
+
+      // Update the main order status so it reflects the return flow
+      order.status = 'Return Requested';
+      await orderRepo.save(order);
 
       // Create admin notification
       const notificationRepo = AppDataSource.getRepository(Notification);

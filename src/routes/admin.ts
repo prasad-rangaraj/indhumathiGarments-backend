@@ -289,13 +289,17 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         name,
         description,
         price,
-        image: image || undefined,
+        image: image ? extractS3Key(image) || undefined : undefined,
         material: material || 'Cotton',
         category,
         subcategory,
         sizes: sizes || [],
-        colors: colors || [],
-        images: images || [],
+        colors: (colors || []).map(c => ({
+          ...c,
+          images: (c.images || []).map(img => extractS3Key(img)).filter(Boolean) as string[],
+          primaryImage: c.primaryImage ? extractS3Key(c.primaryImage) : undefined
+        })),
+        images: (images || []).map(img => extractS3Key(img)).filter(Boolean) as string[],
         inStock: inStock !== undefined ? inStock : (stock > 0),
         stock: stock || 0,
         isActive: isActive !== undefined ? isActive : true,
@@ -324,7 +328,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         category: z.string().optional(),
         subcategory: z.string().optional(),
         sizes: z.array(z.string()).optional(),
-        colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()) })).optional(),
+        colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()), primaryImage: z.string().optional() })).optional(),
         stock: z.number().optional(),
         inStock: z.boolean().optional(),
         isActive: z.boolean().optional(),
@@ -358,7 +362,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       if (body.colors) {
         updateData.colors = body.colors.map((c: any) => ({
           ...c,
-          images: (c.images || []).map((img: string) => extractS3Key(img)).filter(Boolean)
+          images: (c.images || []).map((img: string) => extractS3Key(img)).filter(Boolean),
+          primaryImage: c.primaryImage ? extractS3Key(c.primaryImage) : undefined
         }));
       }
 

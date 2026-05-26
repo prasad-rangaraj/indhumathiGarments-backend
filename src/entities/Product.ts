@@ -41,7 +41,7 @@ export class Product {
   sizes?: string[];
 
   @Column({ type: 'simple-json', nullable: true })
-  colors?: { name: string; hex?: string; images: string[] }[];
+  colors?: { name: string; hex?: string; images: string[]; primaryImage?: string }[];
 
   @Column({ type: 'int', default: 0 })
   stock!: number;

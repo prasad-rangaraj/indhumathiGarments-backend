@@ -32,6 +32,7 @@ export default async function wishlistRoutes(appInstance: FastifyInstance) {
             id: item.id,
             userId: item.userId,
             productId: product.id,
+            color: item.color,
             createdAt: item.createdAt, 
             product: resolvedProduct,
           };
@@ -46,7 +47,7 @@ export default async function wishlistRoutes(appInstance: FastifyInstance) {
   // Add to wishlist
   app.post('/', { schema: { body: wishlistSchema } }, async (request, reply) => {
     try {
-      const { productId } = request.body as z.infer<typeof wishlistSchema>;
+      const { productId, color } = request.body as z.infer<typeof wishlistSchema>;
       const user = (request as any).user;
 
       const wishlistItemRepo = AppDataSource.getRepository(WishlistItem);
@@ -61,6 +62,7 @@ export default async function wishlistRoutes(appInstance: FastifyInstance) {
       const newItem = wishlistItemRepo.create({
           userId: user.id,
           productId,
+          color,
       });
       let wishlistItem = await wishlistItemRepo.save(newItem);
       wishlistItem = await wishlistItemRepo.findOne({

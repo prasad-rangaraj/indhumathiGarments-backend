@@ -37,7 +37,7 @@ export const productSchema = z.object({
   image: z.string().optional().nullable(),
   images: z.array(z.string()).optional(),
   sizes: z.array(z.string()).default([]),
-  colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()) })).optional(),
+  colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()), primaryImage: z.string().optional() })).optional(),
   material: z.string().optional(),
   inStock: z.boolean().optional(),
   stock: z.number().int().min(0).default(0),
@@ -57,6 +57,7 @@ export const cartSchema = z.object({
 // Wishlist Schema
 export const wishlistSchema = z.object({
   productId: z.string(),
+  color: z.string().optional(),
 });
 
 // Review Schema

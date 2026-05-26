@@ -67,8 +67,28 @@ export const extractS3Key = (urlOrKey: string | undefined | null): string | null
   if (!urlOrKey) return null;
   const region = process.env.AWS_REGION || 'ap-south-1';
   const prefix = `https://${S3_BUCKET}.s3.${region}.amazonaws.com/`;
-  if (urlOrKey.startsWith(prefix)) {
-    return urlOrKey.slice(prefix.length);
+  
+  try {
+    if (urlOrKey.startsWith(prefix)) {
+      const url = new URL(urlOrKey);
+      return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+    }
+  } catch (e) {
+    // Fallback if URL parsing fails
+    if (urlOrKey.startsWith(prefix)) {
+      return urlOrKey.slice(prefix.length).split('?')[0];
+    }
   }
+  
+  // If it's a signed URL from somewhere else (e.g., custom domain), try to parse it
+  if (urlOrKey.includes('?X-Amz-Algorithm')) {
+    try {
+      const url = new URL(urlOrKey);
+      return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+    } catch (e) {
+      return urlOrKey.split('?')[0];
+    }
+  }
+  
   return urlOrKey;
 };

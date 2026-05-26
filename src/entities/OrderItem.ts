@@ -24,6 +24,12 @@ export class OrderItem {
   @Column({ type: 'int' })
   quantity!: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  name?: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  image?: string;
+
   @Column({ type: 'varchar' })
   size!: string;
 

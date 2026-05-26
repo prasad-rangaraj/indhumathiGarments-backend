@@ -4,6 +4,7 @@ import { User } from '../entities/User.js';
 import { protect } from '../middleware/auth.js';
 import { z } from 'zod';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import bcrypt from 'bcrypt';
 
 export default async function userRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -76,6 +77,51 @@ export default async function userRoutes(appInstance: FastifyInstance) {
           createdAt: updatedUser.createdAt,
           address: updatedUser.address
       });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Update Password
+  app.patch('/update-password', {
+    schema: {
+      body: z.object({
+        oldPassword: z.string().optional(),
+        newPassword: z.string().min(6, "New password must be at least 6 characters")
+      })
+    }
+  }, async (request, reply) => {
+    try {
+      const { oldPassword, newPassword } = request.body as any;
+      const currentUser = (request as any).user;
+      
+      const userRepo = AppDataSource.getRepository(User);
+      // Select password explicitly since it might be excluded by default
+      const user = await userRepo.findOne({ 
+        where: { id: currentUser.id },
+        select: ['id', 'password']
+      });
+
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      // If the user already has a password set (e.g. email login), they MUST provide the correct old password
+      if (user.password) {
+        if (!oldPassword) {
+          return reply.status(400).send({ error: 'Current password is required to set a new password' });
+        }
+        const isValid = await bcrypt.compare(oldPassword, user.password);
+        if (!isValid) {
+          return reply.status(400).send({ error: 'Incorrect current password' });
+        }
+      }
+
+      // Hash the new password and save it
+      user.password = await bcrypt.hash(newPassword, 10);
+      await userRepo.save(user);
+      
+      return reply.send({ message: 'Password updated successfully' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }

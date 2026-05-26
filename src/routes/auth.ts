@@ -272,7 +272,8 @@ export default async function authRoutes(appInstance: FastifyInstance) {
       user.resetPasswordExpires = resetPasswordExpires;
       await userRepo.save(user);
 
-      const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+      const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+      const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
       
       await sendEmail({
         email: user.email,
