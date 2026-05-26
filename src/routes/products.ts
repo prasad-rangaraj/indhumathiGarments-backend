@@ -13,7 +13,7 @@ export const withSignedImages = async (p: Product) => {
     ...(p.images ?? []).map(resolveImageUrl),
   ]);
 
-  let resolvedColors = p.colors;
+  let resolvedColors: any = p.colors;
   if (p.colors && Array.isArray(p.colors)) {
     resolvedColors = await Promise.all(
       p.colors.map(async (color) => {

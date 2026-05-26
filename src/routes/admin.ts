@@ -297,7 +297,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         colors: (colors || []).map(c => ({
           ...c,
           images: (c.images || []).map(img => extractS3Key(img)).filter(Boolean) as string[],
-          primaryImage: c.primaryImage ? extractS3Key(c.primaryImage) : undefined
+          primaryImage: (c.primaryImage ? extractS3Key(c.primaryImage) : undefined) ?? undefined
         })),
         images: (images || []).map(img => extractS3Key(img)).filter(Boolean) as string[],
         inStock: inStock !== undefined ? inStock : (stock > 0),
@@ -363,7 +363,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         updateData.colors = body.colors.map((c: any) => ({
           ...c,
           images: (c.images || []).map((img: string) => extractS3Key(img)).filter(Boolean),
-          primaryImage: c.primaryImage ? extractS3Key(c.primaryImage) : undefined
+          primaryImage: (c.primaryImage ? extractS3Key(c.primaryImage) : undefined) ?? undefined
         }));
       }
 
