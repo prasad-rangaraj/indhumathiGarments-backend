@@ -362,6 +362,17 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
       }
       await orderRepo.save(existingOrder);
 
+      // Restore stock for each item in the cancelled order
+      const productRepo = AppDataSource.getRepository(Product);
+      for (const item of existingOrder.items || []) {
+        const product = await productRepo.findOneBy({ id: item.productId });
+        if (product) {
+          product.stock += item.quantity;
+          if (product.stock > 0) product.inStock = true;
+          await productRepo.save(product);
+        }
+      }
+
       const auditRepo = AppDataSource.getRepository(AuditLog);
       await auditRepo.save({
           adminId: user.id, // Using user details even if customer

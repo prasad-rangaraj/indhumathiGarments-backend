@@ -255,7 +255,8 @@ export default async function authRoutes(appInstance: FastifyInstance) {
       const user = await userRepo.findOne({ where: { email } });
 
       if (!user) {
-        return reply.status(404).send({ error: 'User not found' });
+        // Security: always return 200 to prevent email enumeration
+        return reply.send({ message: 'Email sent' });
       }
 
       const crypto = await import('crypto');

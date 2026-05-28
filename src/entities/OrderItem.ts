@@ -14,12 +14,12 @@ export class OrderItem {
   @JoinColumn({ name: 'orderId' })
   order!: Relation<Order>;
 
-  @Column({ type: 'varchar' })
-  productId!: string;
+  @Column({ type: 'varchar', nullable: true })
+  productId?: string;
 
-  @ManyToOne('Product', (product: any) => product.orderItems)
+  @ManyToOne('Product', (product: any) => product.orderItems, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'productId' })
-  product!: Relation<Product>;
+  product?: Relation<Product>;
 
   @Column({ type: 'int' })
   quantity!: number;

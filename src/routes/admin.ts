@@ -911,6 +911,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         return reply.status(400).send({ error: 'Cannot change super admin role' });
       }
 
+      const oldRole = customer.role; // capture BEFORE mutation
       customer.role = role;
       await userRepo.save(customer);
 
@@ -921,7 +922,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         action: 'UPDATE_ROLE',
         entityType: 'USER',
         entityId: customer.id,
-        details: JSON.stringify({ oldRole: customer.role === role ? 'same' : (role === 'admin' ? 'customer' : 'admin'), newRole: role })
+        details: JSON.stringify({ oldRole, newRole: role })
       });
 
       return reply.send({
@@ -997,7 +998,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       const orderRepo = AppDataSource.getRepository(Order);
       const orders = await orderRepo.find({ where: { userId: id } });
       for (const order of orders) {
-        order.userId = undefined;
+        order.userId = null as any;
         await orderRepo.save(order);
       }
 

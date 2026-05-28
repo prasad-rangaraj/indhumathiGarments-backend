@@ -157,7 +157,10 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
       existing.quantity = quantity;
       const cartItem = await cartItemRepo.save(existing);
 
-      const product = cartItem.product; 
+      const product = cartItem.product;
+      if (!product) {
+        return reply.status(500).send({ error: 'Product no longer available' });
+      }
       const [image, ...resolvedImages] = await Promise.all([
         resolveImageUrl(product.image),
         ...(product.images ?? []).map(resolveImageUrl),

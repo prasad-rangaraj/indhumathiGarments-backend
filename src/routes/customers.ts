@@ -48,8 +48,12 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
     try {
       const { userId } = request.params as { userId: string };
       const { name, phone } = request.body as { name?: string, phone?: string };
+      const authUser = (request as any).user;
 
-      // Ensure that ownership or admin privileges exist (omitted for speed unless required, following previous implementation)
+      // Ownership check: users can only update their own profile
+      if (authUser.role !== 'admin' && authUser.role !== 'super_admin' && authUser.id !== userId) {
+        return reply.status(403).send({ error: 'Not authorized to update this profile' });
+      }
       
       const userRepo = AppDataSource.getRepository(User);
       let user = await userRepo.findOneBy({ id: userId });

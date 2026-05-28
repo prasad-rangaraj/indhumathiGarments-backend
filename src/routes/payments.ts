@@ -45,19 +45,6 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
   // All payment routes require auth
   app.addHook('preHandler', protect);
 
-  // Requirement Alias: POST /api/create-order
-  app.post('/create-order-alias', {
-    schema: {
-      body: z.object({
-        items: z.array(orderItemSchema).min(1),
-        couponDiscount: z.number().min(0).max(100).optional(),
-      })
-    }
-  }, async (request, reply) => {
-     // Forward to the main handler or just copy logic. 
-     // For simplicity, let's just make the main route handle it.
-  });
-
   /**
    * POST /api/payments/create-order
    */
@@ -65,12 +52,13 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
     schema: {
       body: z.object({
         items: z.array(orderItemSchema).min(1),
-        couponDiscount: z.number().min(0).max(100).optional(), // discount % from valid coupon
+        couponCode: z.string().optional().nullable(),
+        couponDiscount: z.number().min(0).max(100).optional(),
       })
     }
   }, async (request, reply) => {
     try {
-      const { items, couponDiscount } = request.body as any;
+      const { items, couponCode } = request.body as any;
 
       // Verify product prices from DB — NEVER trust client-side prices
       const productRepo = AppDataSource.getRepository(Product);
@@ -87,7 +75,6 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
       }
 
       // Apply coupon discount server-side based on actual DB record
-      const { couponCode } = request.body as any;
       if (couponCode) {
         const couponRepo = AppDataSource.getRepository(Coupon);
         const coupon = await couponRepo.findOneBy({ code: couponCode, isActive: true });
