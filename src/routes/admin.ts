@@ -282,7 +282,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   // Create product
   app.post('/products', { schema: { body: productSchema } }, async (request, reply) => {
     try {
-      const { name, description, price, image, images, material, category, subcategory, sizes, colors, inStock, stock, isActive, metaTitle, metaDescription, gender } = request.body as z.infer<typeof productSchema>;
+      const { name, description, price, image, images, material, category, subcategory, sizes, colors, showColorThumbnails, inStock, stock, isActive, metaTitle, metaDescription, gender } = request.body as z.infer<typeof productSchema>;
 
       const productRepo = AppDataSource.getRepository(Product);
       const product = productRepo.create({
@@ -300,6 +300,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
           primaryImage: (c.primaryImage ? extractS3Key(c.primaryImage) : undefined) ?? undefined
         })),
         images: (images || []).map(img => extractS3Key(img)).filter(Boolean) as string[],
+        showColorThumbnails: showColorThumbnails !== undefined ? showColorThumbnails : false,
         inStock: inStock !== undefined ? inStock : (stock > 0),
         stock: stock || 0,
         isActive: isActive !== undefined ? isActive : true,
@@ -329,6 +330,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
         subcategory: z.string().optional(),
         sizes: z.array(z.string()).optional(),
         colors: z.array(z.object({ name: z.string(), hex: z.string().optional(), images: z.array(z.string()), primaryImage: z.string().optional() })).optional(),
+        showColorThumbnails: z.boolean().optional(),
         stock: z.number().optional(),
         inStock: z.boolean().optional(),
         isActive: z.boolean().optional(),
@@ -366,6 +368,8 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
           primaryImage: (c.primaryImage ? extractS3Key(c.primaryImage) : undefined) ?? undefined
         }));
       }
+
+      if (body.showColorThumbnails !== undefined) updateData.showColorThumbnails = body.showColorThumbnails;
 
       if (body.material) updateData.material = body.material;
       if (body.category) updateData.category = body.category;
