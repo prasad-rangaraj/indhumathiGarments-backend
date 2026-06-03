@@ -23,8 +23,10 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
       // Get folder from query, default to 'products'
       const query = request.query as { folder?: string };
-      let folderName = (query.folder || 'products').replace(/[^a-zA-Z0-9.\-_]/g, '');
+      let rawFolder = query.folder || 'products';
+      let folderName = rawFolder.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9.\-_/]/g, '');
       if (!folderName) folderName = 'products'; // Fallback if only special chars were provided
+      folderName = folderName.replace(/^\/+|\/+$/g, ''); // Clean leading/trailing slashes
 
       // Build a clean S3 key: folder/<timestamp>-<sanitized-filename>
       const sanitized = data.filename.replace(/[^a-zA-Z0-9.\-_]/g, '');
