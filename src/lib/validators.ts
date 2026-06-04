@@ -31,7 +31,7 @@ export const categorySchema = z.object({
 export const productSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
-  price: z.number().positive(),
+  price: z.coerce.number().positive(),
   category: z.string(),
   subcategory: z.string(),
   image: z.string().optional().nullable(),
@@ -41,7 +41,7 @@ export const productSchema = z.object({
   showColorThumbnails: z.boolean().optional().default(false),
   material: z.string().optional(),
   inStock: z.boolean().optional(),
-  stock: z.number().int().min(0).default(0),
+  stock: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
@@ -50,7 +50,7 @@ export const productSchema = z.object({
 // Cart Schema
 export const cartSchema = z.object({
   productId: z.string(),
-  quantity: z.number().int().positive(),
+  quantity: z.coerce.number().int().positive(),
   size: z.string(),
   color: z.string().optional(),
 });
@@ -73,25 +73,25 @@ export const reviewSchema = z.object({
 // Order Schema
 export const orderSchema = z.object({
   items: z.array(z.object({
-      productId: z.string(),
-      quantity: z.number().int().positive().max(100),
+      productId: z.string().uuid('Invalid product ID'),
+      quantity: z.coerce.number().int().positive().max(100),
       selectedSize: z.string().optional(),
-      size: z.string().optional(), // Allow both for backward compat or flexible frontend
+      size: z.string().optional(),
       selectedColor: z.string().optional(),
       color: z.string().optional(),
-      price: z.number().positive(),
+      price: z.coerce.number().positive(),
   })).nonempty(),
-  total: z.number().positive(),
-  originalTotal: z.number().nullable().optional(),
-  discount: z.number().nullable().optional(),
-  couponCode: z.string().nullable().optional(),
+  total: z.coerce.number().positive(),
+  originalTotal: z.coerce.number().nullable().optional(),
+  discount: z.coerce.number().min(0).nullable().optional(),
+  couponCode: z.string().max(50).nullable().optional(),
   customerInfo: z.object({
-      name: z.string().min(2),
+      name: z.string().min(2).max(100),
       email: z.string().email(),
-      phone: z.string().min(10),
-      address: z.string().min(5),
-      city: z.string(),
-      pincode: z.string(),
+      phone: z.string().min(10).max(15).regex(/^[0-9+\-\s()]+$/, 'Invalid phone number'),
+      address: z.string().min(1).max(500),
+      city: z.string().min(1).max(100),
+      pincode: z.string().min(5).max(10).regex(/^[0-9]+$/, 'Invalid pincode'),
   }),
-  paymentMethod: z.string(),
+  paymentMethod: z.enum(['cod', 'upi', 'card', 'online']),
 });

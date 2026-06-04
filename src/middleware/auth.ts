@@ -40,6 +40,14 @@ export const protect = async (request: FastifyRequest, reply: FastifyReply) => {
       return reply.status(401).send({ error: 'User not found' });
     }
 
+    if (!user.isActive) {
+      return reply.status(403).send({ error: 'Your account has been deactivated. Please contact support.' });
+    }
+
+    if (!user.isVerified) {
+      return reply.status(403).send({ error: 'Please verify your email before placing orders.' });
+    }
+
     // Attach user to request
     (request as any).user = user;
   } catch (error) {

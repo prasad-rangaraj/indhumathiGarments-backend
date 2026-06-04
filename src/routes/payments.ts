@@ -31,8 +31,8 @@ const getRazorpayInstance = () => {
 // Strict item schema — price is optional, backend always recalculates from DB
 const orderItemSchema = z.object({
   productId: z.string().uuid('Invalid product ID'),
-  quantity: z.number().int().positive().max(100),
-  price: z.number().positive().optional(), // ignored — backend recalculates from DB
+  quantity: z.coerce.number().int().positive().max(100),
+  price: z.coerce.number().positive().optional(), // ignored — backend recalculates from DB
   selectedSize: z.string().optional(),
   size: z.string().optional(),
   selectedColor: z.string().optional(),
@@ -53,7 +53,7 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
       body: z.object({
         items: z.array(orderItemSchema).min(1),
         couponCode: z.string().optional().nullable(),
-        couponDiscount: z.number().min(0).max(100).optional(),
+        couponDiscount: z.coerce.number().min(0).max(100).optional(),
       })
     }
   }, async (request, reply) => {
@@ -70,6 +70,12 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
         }
         if (!product.isActive) {
           return reply.status(400).send({ error: `Product is no longer available: ${product.name}` });
+        }
+        // Prevent creating a payment session for unavailable stock
+        if (product.stock < item.quantity) {
+          return reply.status(400).send({
+            error: `Insufficient stock for "${product.name}". Only ${product.stock} left in stock.`,
+          });
         }
         serverTotal += Number(product.price) * item.quantity;
       }
@@ -136,7 +142,7 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
         orderData: z.object({
           items: z.array(orderItemSchema).min(1),
           couponCode: z.string().optional().nullable(),
-          couponDiscount: z.number().min(0).max(100).optional(),
+          couponDiscount: z.coerce.number().min(0).max(100).optional(),
           customerInfo: z.object({
             name: z.string().min(1).max(100),
             email: z.string().email(),
@@ -145,7 +151,7 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
             city: z.string().min(1).max(100),
             pincode: z.string().min(5).max(10),
           }),
-          paymentMethod: z.string().min(1),
+          paymentMethod: z.enum(['cod', 'upi', 'card', 'online']),
         }),
       })
     }
@@ -262,6 +268,11 @@ export default async function paymentsRoutes(appInstance: FastifyInstance) {
         if (orderData.couponCode) {
             const coupon = await couponRepoTx.findOneBy({ code: orderData.couponCode });
             if (coupon) {
+                // Re-validate expiry inside TX to prevent race conditions
+                const now = new Date();
+                if (coupon.validFrom > now || coupon.validUntil < now || !coupon.isActive) {
+                    throw new Error('Coupon has expired or is no longer valid.');
+                }
                 if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
                     throw new Error('Coupon usage limit reached');
                 }

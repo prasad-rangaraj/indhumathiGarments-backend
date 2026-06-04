@@ -34,12 +34,11 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
          }
       }
 
+      const { withSignedImages } = await import('./products.js');
+
       const resolvedItems = await Promise.all(validItems.map(async (cartItem) => {
           const product = cartItem.product!;
-          const [image, ...resolvedImages] = await Promise.all([
-            resolveImageUrl(product.image),
-            ...(product.images ?? []).map(resolveImageUrl),
-          ]);
+          const signedProduct = await withSignedImages(product);
           
           return {
               id: cartItem.id,
@@ -50,12 +49,7 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
               color: cartItem.color,
               createdAt: cartItem.createdAt,
               updatedAt: cartItem.updatedAt,
-              product: {
-                  ...product,
-                  price: Number(product.price),
-                  image,
-                  images: resolvedImages,
-              },
+              product: signedProduct,
           };
       }));
 
@@ -71,6 +65,23 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
       const { productId, quantity, size, color } = request.body as z.infer<typeof cartSchema>;
       const user = (request as any).user;
 
+      // Validate product exists, is active, and has sufficient stock
+      const { Product } = await import('../entities/Product.js');
+      const productRepo = AppDataSource.getRepository(Product);
+      const product = await productRepo.findOneBy({ id: productId });
+
+      if (!product) {
+        return reply.status(404).send({ error: 'Product not found.' });
+      }
+      if (!product.isActive) {
+        return reply.status(400).send({ error: `"${product.name}" is no longer available.` });
+      }
+      if (product.stock < quantity) {
+        return reply.status(400).send({
+          error: `Only ${product.stock} unit${product.stock === 1 ? '' : 's'} of "${product.name}" left in stock.`,
+        });
+      }
+
       const cartItemRepo = AppDataSource.getRepository(CartItem);
       
       const existingItem = await cartItemRepo.findOne({
@@ -82,11 +93,17 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
         }
       });
 
+      // If item already in cart, check combined quantity doesn't exceed stock
+      if (existingItem && product.stock < existingItem.quantity + quantity) {
+        return reply.status(400).send({
+          error: `Cannot add ${quantity} more — only ${product.stock - existingItem.quantity} unit${product.stock - existingItem.quantity === 1 ? '' : 's'} remaining.`,
+        });
+      }
+
       let cartItem;
       if (existingItem) {
         existingItem.quantity += quantity;
         cartItem = await cartItemRepo.save(existingItem);
-        // Explicitly load the product relation for existingItem since save() doesn't auto-fetch relations if not loaded
         cartItem = await cartItemRepo.findOne({ where: { id: cartItem.id }, relations: ['product'] });
       } else {
         const newItem = cartItemRepo.create({
@@ -104,24 +121,24 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
           return reply.status(500).send({ error: 'Failed to add item to cart' });
       }
 
-      const product = cartItem.product;
+      const cartProduct = cartItem.product;
       const [image, ...resolvedImages] = await Promise.all([
-        resolveImageUrl(product.image),
-        ...(product.images ?? []).map(resolveImageUrl),
+        resolveImageUrl(cartProduct.image),
+        ...(cartProduct.images ?? []).map(resolveImageUrl),
       ]);
 
       return reply.status(201).send({
           id: cartItem.id,
           userId: cartItem.userId,
-          productId: product.id,
+          productId: cartProduct.id,
           quantity: cartItem.quantity,
           size: cartItem.size,
           color: cartItem.color,
           createdAt: cartItem.createdAt,
           updatedAt: cartItem.updatedAt,
           product: {
-              ...product,
-              price: Number(product.price),
+              ...cartProduct,
+              price: Number(cartProduct.price),
               image,
               images: resolvedImages,
           },
@@ -134,7 +151,7 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
   // Update cart item
   app.patch('/:id', {
     schema: {
-      body: z.object({ quantity: z.number().int().positive() })
+      body: z.object({ quantity: z.coerce.number().int().positive().max(100) })
     }
   }, async (request, reply) => {
     try {
@@ -154,30 +171,41 @@ export default async function cartRoutes(appInstance: FastifyInstance) {
           return reply.status(404).send({ error: 'Cart item not found' });
       }
 
+      // Validate quantity against live stock
+      const product = existing.product;
+      if (!product) {
+        return reply.status(400).send({ error: 'Product no longer available' });
+      }
+      if (quantity > product.stock) {
+        return reply.status(400).send({
+          error: `Only ${product.stock} unit${product.stock === 1 ? '' : 's'} of "${product.name}" available.`,
+        });
+      }
+
       existing.quantity = quantity;
       const cartItem = await cartItemRepo.save(existing);
 
-      const product = cartItem.product;
-      if (!product) {
+      const cartProduct = cartItem.product;
+      if (!cartProduct) {
         return reply.status(500).send({ error: 'Product no longer available' });
       }
       const [image, ...resolvedImages] = await Promise.all([
-        resolveImageUrl(product.image),
-        ...(product.images ?? []).map(resolveImageUrl),
+        resolveImageUrl(cartProduct.image),
+        ...(cartProduct.images ?? []).map(resolveImageUrl),
       ]);
 
       return reply.send({
           id: cartItem.id,
           userId: cartItem.userId,
-          productId: product.id,
+          productId: cartProduct.id,
           quantity: cartItem.quantity,
           size: cartItem.size,
           color: cartItem.color,
           createdAt: cartItem.createdAt, 
           updatedAt: cartItem.updatedAt,
           product: {
-              ...product,
-              price: Number(product.price),
+              ...cartProduct,
+              price: Number(cartProduct.price),
               image,
               images: resolvedImages,
           },

@@ -51,6 +51,7 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
       total: Number(order.total),
       originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
       discount: order.discount ? Number(order.discount) : null,
+      orderDate: order.orderDate ? new Date(order.orderDate).toISOString() : new Date(order.createdAt).toISOString(),
       items: resolvedItems,
     };
   };
@@ -274,7 +275,13 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
   app.patch('/:orderId/status', {
     schema: {
       params: z.object({ orderId: z.string() }),
-      body: z.object({ status: z.string() })
+      body: z.object({
+        status: z.enum([
+          'Pending', 'Packed', 'Shipped', 'Delivered',
+          'Cancelled', 'Return Requested', 'Return Picked Up',
+          'Refund Processed', 'Refund Completed', 'Return Rejected'
+        ])
+      })
     }
   }, async (request, reply) => {
     try {
@@ -294,6 +301,14 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
 
       if (!existingOrder) {
         return reply.status(404).send({ error: 'Order not found' });
+      }
+
+      // Block illegal backward transitions from terminal states
+      const terminalStatuses = ['Delivered', 'Cancelled', 'Refund Completed'];
+      if (terminalStatuses.includes(existingOrder.status) && existingOrder.status !== status) {
+        return reply.status(400).send({
+          error: `Cannot change status from "${existingOrder.status}". This order is in a terminal state.`
+        });
       }
 
       existingOrder.status = status;
@@ -338,9 +353,10 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
         return reply.status(404).send({ error: 'Order not found' });
       }
 
-      // Check ownership
-      if (user.role !== 'admin' && user.role !== 'super_admin' && existingOrder.userId && existingOrder.userId !== user.id) {
-         return reply.status(403).send({ error: 'Not authorized to cancel this order' });
+      // Check ownership — deny if not admin AND (userId is null OR userId is not current user)
+      const isAdmin = user.role === 'admin' || user.role === 'super_admin';
+      if (!isAdmin && (existingOrder.userId == null || existingOrder.userId !== user.id)) {
+        return reply.status(403).send({ error: 'Not authorized to cancel this order' });
       }
 
       if (existingOrder.status !== 'Pending') {
@@ -352,30 +368,33 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
       const now = new Date().getTime();
       const hours24 = 24 * 60 * 60 * 1000;
       
-      if (now - orderDate > hours24 && user.role !== 'admin' && user.role !== 'super_admin') {
+      if (!isAdmin && (now - orderDate > hours24)) {
          return reply.status(400).send({ error: 'Order cannot be cancelled after 24 hours' });
       }
 
-      existingOrder.status = 'Cancelled';
-      if (reason) {
-        existingOrder.cancelReason = reason;
-      }
-      await orderRepo.save(existingOrder);
+      // Atomically cancel order AND restore stock in one transaction
+      await AppDataSource.manager.transaction(async (em) => {
+        const orderRepoTx = em.getRepository(Order);
+        const productRepoTx = em.getRepository(Product);
 
-      // Restore stock for each item in the cancelled order
-      const productRepo = AppDataSource.getRepository(Product);
-      for (const item of existingOrder.items || []) {
-        const product = await productRepo.findOneBy({ id: item.productId });
-        if (product) {
-          product.stock += item.quantity;
-          if (product.stock > 0) product.inStock = true;
-          await productRepo.save(product);
+        existingOrder.status = 'Cancelled';
+        if (reason) existingOrder.cancelReason = reason;
+        await orderRepoTx.save(existingOrder);
+
+        // Restore stock for each item
+        for (const item of existingOrder.items || []) {
+          const product = await productRepoTx.findOneBy({ id: item.productId });
+          if (product) {
+            product.stock += item.quantity;
+            if (product.stock > 0) product.inStock = true;
+            await productRepoTx.save(product);
+          }
         }
-      }
+      });
 
       const auditRepo = AppDataSource.getRepository(AuditLog);
       await auditRepo.save({
-          adminId: user.id, // Using user details even if customer
+          adminId: user.id,
           adminEmail: user.email,
           action: 'CANCEL_ORDER',
           entityType: 'ORDER',
@@ -459,31 +478,46 @@ export default async function orderRoutes(appInstance: FastifyInstance) {
       if (!order) return reply.status(404).send({ error: 'Order not found' });
       if (order.status !== 'Delivered') return reply.status(400).send({ error: 'Only delivered orders can be returned' });
 
+      // Enforce 7-day return window from order date
+      const deliveredAt = new Date(order.orderDate).getTime();
+      const daysSinceOrder = (Date.now() - deliveredAt) / (1000 * 60 * 60 * 24);
+      if (daysSinceOrder > 7) {
+        return reply.status(400).send({
+          error: 'Return window has closed. Returns must be requested within 7 days of delivery.'
+        });
+      }
+
       const returnRepo = AppDataSource.getRepository(ReturnRequest);
       const existingReturn = await returnRepo.findOne({ where: { orderId: order.orderId } });
       if (existingReturn) return reply.status(400).send({ error: 'Return already requested for this order' });
 
-      const newReturn = returnRepo.create({
+      // Atomically create return record AND update order status
+      let newReturn: any;
+      await AppDataSource.manager.transaction(async (em) => {
+        const returnRepoTx = em.getRepository(ReturnRequest);
+        const orderRepoTx = em.getRepository(Order);
+
+        newReturn = returnRepoTx.create({
           orderId: order.orderId,
           userId: user.id,
           reason,
           images: images || [],
           status: 'Pending'
+        });
+        await returnRepoTx.save(newReturn);
+
+        order.status = 'Return Requested';
+        await orderRepoTx.save(order);
       });
-      await returnRepo.save(newReturn);
 
-      // Update the main order status so it reflects the return flow
-      order.status = 'Return Requested';
-      await orderRepo.save(order);
-
-      // Create admin notification
+      // Create admin notification (non-blocking)
       const notificationRepo = AppDataSource.getRepository(Notification);
-      await notificationRepo.save({
+      notificationRepo.save({
           title: 'New Return Request',
           message: `Customer requested a return for order ${order.orderId}`,
           type: 'RETURN_REQUEST',
           link: `/admin/returns`
-      });
+      }).catch((e: any) => console.error('Failed to save return notification:', e));
 
       return reply.status(201).send(newReturn);
     } catch (error: any) {
