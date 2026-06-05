@@ -1,6 +1,6 @@
 // PM2 Ecosystem Config for Indhumathi Garments Backend
 // Usage: pm2 start ecosystem.config.js --env production
-export default {
+module.exports = {
   apps: [
     {
       name: 'indhumathi-backend',
