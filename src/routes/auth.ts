@@ -92,7 +92,7 @@ export default async function authRoutes(appInstance: FastifyInstance) {
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60, // 30 days
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
       });
 
@@ -223,7 +223,7 @@ export default async function authRoutes(appInstance: FastifyInstance) {
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
       });
 
@@ -330,7 +330,7 @@ export default async function authRoutes(appInstance: FastifyInstance) {
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
       });
 
@@ -401,7 +401,7 @@ export default async function authRoutes(appInstance: FastifyInstance) {
         httpOnly: true,
         maxAge: 30 * 24 * 60 * 60,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
       });
 

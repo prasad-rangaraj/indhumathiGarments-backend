@@ -52,7 +52,22 @@ const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
 const frontendUrl = rawFrontendUrl.replace(/\/$/, ''); // Remove trailing slash if any
 
 app.register(cors, {
-  origin: true, // Temporarily allow all origins for debugging
+  origin: (origin, cb) => {
+    const allowedOrigins = [
+      'https://indhumathigarments.com',
+      'https://www.indhumathigarments.com',
+      process.env.FRONTEND_URL?.replace(/\/$/, ''),
+      'http://localhost:8080',
+      'http://localhost:5173',
+    ].filter(Boolean);
+    // Allow requests with no origin (server-to-server, curl, mobile apps)
+    // Also allow Cloudflare Pages preview deployments (.pages.dev)
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.pages.dev')) {
+      cb(null, true);
+    } else {
+      cb(new Error(`CORS: origin ${origin} not allowed`), false);
+    }
+  },
   credentials: true,
   methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
