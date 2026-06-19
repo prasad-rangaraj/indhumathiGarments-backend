@@ -24,7 +24,7 @@ dotenv.config();
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  synchronize: process.env.NODE_ENV !== 'production',
+  synchronize: true, // Auto-sync DB schema in prod for new columns
   logging: process.env.NODE_ENV !== 'production',
   entities: [
     User, Product, Address, Order, OrderItem, Category, CartItem, 

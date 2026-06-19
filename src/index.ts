@@ -147,7 +147,7 @@ app.register(settingsRoutes, { prefix: '/api/admin/settings' });
 app.register(customerRoutes, { prefix: '/api/customers' });
 app.register(enquiryRoutes, { prefix: '/api/enquiries' });
 app.register(couponPublicRoutes, { prefix: '/api/coupons' });
-app.register(trackingRoutes, { prefix: '/api/public/track' });
+app.register(trackingRoutes, { prefix: '/api/public/order-status' });
 app.register(paymentsRoutes, { prefix: '/api/payments' });
 app.register(uploadRoutes, { prefix: '/api/admin' });
 app.register(uploadPublicRoutes, { prefix: '/api/public' });
