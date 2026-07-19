@@ -19,7 +19,14 @@ export default async function uploadPublicRoutes(app: FastifyInstance) {
       }
 
       // Read the file into a buffer
-      const buffer = await toBuffer(data.file);
+      const originalBuffer = await toBuffer(data.file);
+
+      // Process image with sharp
+      const sharp = (await import('sharp')).default;
+      const buffer = await sharp(originalBuffer)
+        .resize({ width: 1200, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
 
       // Get folder from query, default to 'public-uploads'
       const query = request.query as { folder?: string };
@@ -28,12 +35,12 @@ export default async function uploadPublicRoutes(app: FastifyInstance) {
       if (!folderName) folderName = 'public-uploads'; // Fallback if only special chars were provided
       folderName = folderName.replace(/^\/+|\/+$/g, ''); // Clean leading/trailing slashes
 
-      // Build a clean S3 key: folder/<timestamp>-<sanitized-filename>
+      // Build a clean S3 key: folder/<timestamp>-<sanitized-filename>.webp
       const sanitized = data.filename.replace(/[^a-zA-Z0-9.\-_]/g, '');
-      const key = `${folderName}/${Date.now()}-${sanitized}`;
+      const key = `${folderName}/${Date.now()}-${sanitized}.webp`;
 
       // Upload privately to S3
-      await uploadToS3(key, buffer, data.mimetype);
+      await uploadToS3(key, buffer, 'image/webp');
 
       // Generate a short-lived pre-signed URL for immediate preview
       const { getPresignedUrl } = await import('../lib/s3.js');
