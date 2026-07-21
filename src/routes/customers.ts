@@ -103,6 +103,8 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
               city: z.string(),
               pincode: z.string(),
               state: z.string(),
+              district: z.string().optional(),
+              landmark: z.string().optional(),
               country: z.string().optional(),
               isDefault: z.boolean().optional(),
               addressType: z.string().optional()
@@ -110,7 +112,7 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
       }
   }, async (request, reply) => {
     try {
-      const { userId, name, phone, address, city, pincode, state, country, isDefault, addressType } = request.body as Record<string, any>;
+      const { userId, name, phone, address, city, pincode, state, district, landmark, country, isDefault, addressType } = request.body as Record<string, any>;
 
       const addressRepo = AppDataSource.getRepository(Address);
       
@@ -126,6 +128,8 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
             city,
             pincode,
             state,
+            district: district || null,
+            landmark: landmark || null,
             country: country || 'India',
             isDefault: isDefault || false,
             addressType: addressType || 'home',

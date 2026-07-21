@@ -31,6 +31,12 @@ export class Address {
   @Column({ type: 'varchar' })
   state!: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  district!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  landmark!: string;
+
   @Column({ type: 'varchar', default: 'India'  })
   country!: string;
 
