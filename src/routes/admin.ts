@@ -1103,7 +1103,10 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
   app.patch('/returns/:id', {
     schema: {
       params: z.object({ id: z.string() }),
-      body: z.object({ status: z.enum(['Approved', 'Rejected', 'Processed']), adminNotes: z.string().optional() })
+      body: z.object({
+        status: z.string(),
+        adminNotes: z.string().optional()
+      })
     }
   }, async (request, reply) => {
     try {
@@ -1116,7 +1119,7 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       if (!returnReq) return reply.status(404).send({ error: 'Return request not found' });
 
       // Delete images from S3 if request is being finalized
-      if (['Approved', 'Rejected', 'Processed'].includes(status)) {
+      if (['Approved', 'Rejected', 'Processed', 'Return Rejected', 'Refund Completed', 'Cancelled'].includes(status)) {
         if (returnReq.images && returnReq.images.length > 0) {
           await Promise.all(
             returnReq.images.map(img => {
@@ -1134,6 +1137,28 @@ export default async function adminRoutes(appInstance: FastifyInstance) {
       returnReq.status = status;
       if (adminNotes !== undefined) returnReq.adminNotes = adminNotes;
       await returnRepo.save(returnReq);
+
+      // Synchronize Order status on Order entity so User timeline reflects update
+      const orderRepo = AppDataSource.getRepository(Order);
+      const order = await orderRepo.findOne({ where: { orderId: returnReq.orderId } });
+
+      if (order) {
+        if (status === 'Approved' || status === 'Return Picked Up') {
+          order.status = 'Return Picked Up';
+        } else if (status === 'Refund Processed') {
+          order.status = 'Refund Processed';
+        } else if (status === 'Processed' || status === 'Refund Completed') {
+          order.status = 'Refund Completed';
+        } else if (status === 'Rejected' || status === 'Return Rejected' || status === 'Cancelled') {
+          order.status = 'Return Rejected';
+        } else if (status === 'Pending') {
+          order.status = 'Return Requested';
+        } else {
+          // Fallback if custom status string passed
+          order.status = status as any;
+        }
+        await orderRepo.save(order);
+      }
 
       return reply.send(returnReq);
     } catch (error: any) {

@@ -80,6 +80,13 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { userId } = request.params as { userId: string };
+      const authUser = (request as any).user;
+
+      // Ownership check: users can only view their own addresses
+      if (authUser.role !== 'admin' && authUser.role !== 'super_admin' && authUser.id !== userId) {
+        return reply.status(403).send({ error: 'Not authorized to view these addresses' });
+      }
+
       const addressRepo = AppDataSource.getRepository(Address);
       const addresses = await addressRepo.find({
           where: { userId },
@@ -96,7 +103,7 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
   app.post('/addresses', {
       schema: {
           body: z.object({
-              userId: z.string(),
+              userId: z.string().optional(), // ignored — overridden by token
               name: z.string(),
               phone: z.string(),
               address: z.string(),
@@ -112,7 +119,9 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
       }
   }, async (request, reply) => {
     try {
-      const { userId, name, phone, address, city, pincode, state, district, landmark, country, isDefault, addressType } = request.body as Record<string, any>;
+      const { name, phone, address, city, pincode, state, district, landmark, country, isDefault, addressType } = request.body as Record<string, any>;
+      // Always use the authenticated user's ID — never trust client-supplied userId
+      const userId = (request as any).user.id;
 
       const addressRepo = AppDataSource.getRepository(Address);
       
@@ -153,27 +162,31 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, any>;
       const { isDefault, ...updateData } = body;
+      const authUser = (request as any).user;
 
       const addressRepo = AppDataSource.getRepository(Address);
+
+      // Fetch first to check ownership before updating
+      const existingAddress = await addressRepo.findOneBy({ id });
+      if (!existingAddress) {
+        return reply.status(404).send({ error: 'Address not found' });
+      }
+      if (authUser.role !== 'admin' && authUser.role !== 'super_admin' && existingAddress.userId !== authUser.id) {
+        return reply.status(403).send({ error: 'Not authorized to update this address' });
+      }
       
       if (isDefault) {
-        const address = await addressRepo.findOneBy({ id });
-        if (address) {
-            await addressRepo.createQueryBuilder()
-                .update(Address)
-                .set({ isDefault: false })
-                .where("userId = :userId AND id != :id", { userId: address.userId, id })
-                .execute();
-        }
+          await addressRepo.createQueryBuilder()
+              .update(Address)
+              .set({ isDefault: false })
+              .where("userId = :userId AND id != :id", { userId: existingAddress.userId, id })
+              .execute();
       }
 
-      const updatedAddress = await addressRepo.findOneBy({ id });
-      if (updatedAddress) {
-          Object.assign(updatedAddress, { ...updateData, isDefault });
-          await addressRepo.save(updatedAddress);
-      }
+      Object.assign(existingAddress, { ...updateData, isDefault });
+      await addressRepo.save(existingAddress);
 
-      return reply.send(updatedAddress);
+      return reply.send(existingAddress);
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
@@ -185,9 +198,17 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      const authUser = (request as any).user;
       const addressRepo = AppDataSource.getRepository(Address);
       
       const addressToDelete = await addressRepo.findOneBy({ id });
+      if (!addressToDelete) {
+        return reply.status(404).send({ error: 'Address not found' });
+      }
+      // Ownership check
+      if (authUser.role !== 'admin' && authUser.role !== 'super_admin' && addressToDelete.userId !== authUser.id) {
+        return reply.status(403).send({ error: 'Not authorized to delete this address' });
+      }
       if (addressToDelete) {
           const userId = addressToDelete.userId;
           const wasDefault = addressToDelete.isDefault;
@@ -218,6 +239,13 @@ export default async function customerRoutes(appInstance: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { userId } = request.params as { userId: string };
+      const authUser = (request as any).user;
+
+      // Ownership check: users can only see their own orders
+      if (authUser.role !== 'admin' && authUser.role !== 'super_admin' && authUser.id !== userId) {
+        return reply.status(403).send({ error: 'Not authorized to view these orders' });
+      }
+
       const orderRepo = AppDataSource.getRepository(Order);
       const orders = await orderRepo.find({
           where: { userId },

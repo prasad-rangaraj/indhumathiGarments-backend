@@ -26,6 +26,9 @@ export class Coupon {
   @Column({ type: 'boolean', default: true  })
   isActive!: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  isPublic!: boolean;
+
   @Column({ type: 'int', nullable: true })
   usageLimit?: number;
 

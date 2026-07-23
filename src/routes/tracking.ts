@@ -19,7 +19,8 @@ export default async function trackingRoutes(appInstance: FastifyInstance) {
       const orderRepo = AppDataSource.getRepository(Order);
       const order = await orderRepo.findOne({
         where: { trackingNumber },
-        select: ['orderId', 'total', 'originalTotal', 'status', 'trackingNumber', 'createdAt', 'paymentMethod', 'customerName', 'customerEmail', 'customerPhone', 'customerAddress', 'customerCity', 'customerPincode']
+        // Only select non-sensitive fields for the public endpoint
+        select: ['orderId', 'status', 'trackingNumber', 'createdAt', 'paymentMethod', 'customerName', 'customerCity']
       });
 
       if (!order) {
@@ -69,18 +70,13 @@ export default async function trackingRoutes(appInstance: FastifyInstance) {
       return reply.send({
         orderInfo: {
           orderId: order.orderId,
-          total: Number(order.total),
-          originalTotal: order.originalTotal ? Number(order.originalTotal) : null,
           status: order.status,
           trackingNumber: order.trackingNumber,
           paymentMethod: order.paymentMethod,
+          // Only show the city (not full address, not phone/email)
           customerInfo: {
             name: order.customerName,
-            address: order.customerAddress,
             city: order.customerCity,
-            pincode: order.customerPincode,
-            phone: order.customerPhone,
-            email: order.customerEmail
           }
         },
         events: events.reverse()

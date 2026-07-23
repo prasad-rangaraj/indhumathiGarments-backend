@@ -22,6 +22,7 @@ export default async function couponPublicRoutes(appInstance: FastifyInstance) {
        
        const active = coupons.filter(c => {
          const isAct = c.isActive === true || (c.isActive as any) === 1 || (c.isActive as any) === '1';
+         const isPub = c.isPublic === true || (c.isPublic as any) === 1 || (c.isPublic as any) === '1';
          
          // If validUntil exists, check if it's at least the start of today
          // We set 'today' to the beginning of the current day for a fair comparison
@@ -32,7 +33,7 @@ export default async function couponPublicRoutes(appInstance: FastifyInstance) {
          const isNotExpired = !expiryDate || expiryDate >= today;
          
          console.log(`[Coupons Debug] Code: ${c.code}, isActive: ${c.isActive}, isNotExpired: ${isNotExpired}`);
-         return isAct && isNotExpired;
+         return isAct && isPub && isNotExpired;
        });
 
        return reply.send(active.map(c => ({

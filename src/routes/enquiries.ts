@@ -8,7 +8,17 @@ export default async function enquiryRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
 
   // Create enquiry (from contact form)
+  // Rate limit: 5 per 10 minutes per IP to prevent spam
   app.post('/', {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: '10 minutes',
+          errorResponseBuilder: () => ({
+            error: 'Too many enquiries submitted. Please wait a few minutes before trying again.'
+          })
+        }
+      },
       schema: {
           body: z.object({
               name: z.string(),
