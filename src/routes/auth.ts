@@ -245,7 +245,7 @@ export default async function authRoutes(appInstance: FastifyInstance) {
     }
   });
 
-  // Forgot Password
+  // Forgot Password (OTP)
   app.post('/forgot-password', {
     schema: { body: z.object({ email: z.string().email() }) }
   }, async (request, reply) => {
@@ -256,72 +256,64 @@ export default async function authRoutes(appInstance: FastifyInstance) {
 
       if (!user) {
         // Security: always return 200 to prevent email enumeration
-        return reply.send({ message: 'Email sent' });
+        return reply.send({ message: 'If that email exists, an OTP has been sent.' });
       }
 
-      const crypto = await import('crypto');
-      const resetToken = crypto.randomBytes(20).toString('hex');
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
-      const resetPasswordToken = crypto
-        .createHash('sha256')
-        .update(resetToken)
-        .digest('hex');
-
-      const resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
-
-      user.resetPasswordToken = resetPasswordToken;
-      user.resetPasswordExpires = resetPasswordExpires;
+      user.otp = otp;
+      user.otpExpires = otpExpires;
       await userRepo.save(user);
 
-      const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
-      const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
-      
       await sendEmail({
         email: user.email,
-        subject: 'Password Reset Request',
-        message: `You requested a password reset. Please go to this link to reset your password: \n\n ${resetUrl}`
+        subject: 'Password Reset Verification Code',
+        message: `Your password reset verification code is: ${otp}\n\nThis code will expire in 15 minutes.`
       });
 
-      return reply.send({ message: 'Email sent' });
+      return reply.send({ message: 'If that email exists, an OTP has been sent.' });
     } catch (error: any) {
       return reply.status(500).send({ error: error.message });
     }
   });
 
-  // Reset Password
-  app.post('/reset-password/:token', {
+  // Reset Password (OTP)
+  app.post('/reset-password', {
     schema: {
-      params: z.object({ token: z.string() }),
-      body: z.object({ password: z.string().min(6) })
+      body: z.object({ 
+        email: z.string().email(),
+        otp: z.string().length(6),
+        password: z.string().min(6) 
+      })
     }
   }, async (request, reply) => {
     try {
-      const crypto = await import('crypto');
-      const { token } = request.params as { token: string };
-      const resetPasswordToken = crypto
-        .createHash('sha256')
-        .update(token)
-        .digest('hex');
+      const { email, otp, password } = request.body as any;
 
       const userRepo = AppDataSource.getRepository(User);
-      const { MoreThan } = await import('typeorm');
       const user = await userRepo.findOne({
-        where: {
-          resetPasswordToken,
-          resetPasswordExpires: MoreThan(new Date())
-        }
+        where: { email }
       });
 
       if (!user) {
-        return reply.status(400).send({ error: 'Invalid or expired token' });
+        return reply.status(400).send({ error: 'Invalid request' });
       }
 
-      const { password } = request.body as { password: string };
+      if (user.otp !== otp) {
+        return reply.status(400).send({ error: 'Invalid OTP' });
+      }
+
+      if (user.otpExpires && user.otpExpires < new Date()) {
+        return reply.status(400).send({ error: 'OTP has expired' });
+      }
+
       const hashedPassword = await bcrypt.hash(password, 10);
 
       user.password = hashedPassword;
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
+      user.otp = undefined;
+      user.otpExpires = undefined;
       const updatedUser = await userRepo.save(user);
 
       const newToken = generateToken(updatedUser.id, updatedUser.role);

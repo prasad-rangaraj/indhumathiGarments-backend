@@ -5,6 +5,7 @@ import { protect } from '../middleware/auth.js';
 import { z } from 'zod';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import bcrypt from 'bcrypt';
+import sendEmail from '../lib/email.js';
 
 export default async function userRoutes(appInstance: FastifyInstance) {
   const app = appInstance.withTypeProvider<ZodTypeProvider>();
@@ -82,43 +83,70 @@ export default async function userRoutes(appInstance: FastifyInstance) {
     }
   });
 
-  // Update Password
-  app.patch('/update-password', {
+  // Request OTP for Password Update
+  app.post('/request-password-update-otp', async (request, reply) => {
+    try {
+      const currentUser = (request as any).user;
+      const userRepo = AppDataSource.getRepository(User);
+      const user = await userRepo.findOne({ where: { id: currentUser.id } });
+
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+      user.otp = otp;
+      user.otpExpires = otpExpires;
+      await userRepo.save(user);
+
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Update Verification Code',
+        message: `Your verification code to update your password is: ${otp}\n\nThis code will expire in 15 minutes.`
+      });
+
+      return reply.send({ message: 'OTP sent to your email' });
+    } catch (error: any) {
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Update Password with OTP
+  app.patch('/update-password-otp', {
     schema: {
       body: z.object({
-        oldPassword: z.string().optional(),
+        otp: z.string().length(6),
         newPassword: z.string().min(6, "New password must be at least 6 characters")
       })
     }
   }, async (request, reply) => {
     try {
-      const { oldPassword, newPassword } = request.body as any;
+      const { otp, newPassword } = request.body as any;
       const currentUser = (request as any).user;
       
       const userRepo = AppDataSource.getRepository(User);
-      // Select password explicitly since it might be excluded by default
       const user = await userRepo.findOne({ 
-        where: { id: currentUser.id },
-        select: ['id', 'password']
+        where: { id: currentUser.id }
       });
 
       if (!user) {
         return reply.status(404).send({ error: 'User not found' });
       }
 
-      // If the user already has a password set (e.g. email login), they MUST provide the correct old password
-      if (user.password) {
-        if (!oldPassword) {
-          return reply.status(400).send({ error: 'Current password is required to set a new password' });
-        }
-        const isValid = await bcrypt.compare(oldPassword, user.password);
-        if (!isValid) {
-          return reply.status(400).send({ error: 'Incorrect current password' });
-        }
+      if (user.otp !== otp) {
+        return reply.status(400).send({ error: 'Invalid OTP' });
+      }
+
+      if (user.otpExpires && user.otpExpires < new Date()) {
+        return reply.status(400).send({ error: 'OTP has expired' });
       }
 
       // Hash the new password and save it
       user.password = await bcrypt.hash(newPassword, 10);
+      user.otp = undefined;
+      user.otpExpires = undefined;
       await userRepo.save(user);
       
       return reply.send({ message: 'Password updated successfully' });

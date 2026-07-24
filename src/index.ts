@@ -164,4 +164,5 @@ const start = async () => {
   }
 };
 
+// Trigger restart
 start();
